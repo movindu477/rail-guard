@@ -3,7 +3,7 @@ from ultralytics import YOLO
 model = YOLO("yolov8n.pt")
 
 results = model.predict(
-    source="data/videos/test2min.mp4",
+    source="data/videos/processed/night5min.mp4",
     save=True,
     conf=0.25,
     imgsz=1280,
