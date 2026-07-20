@@ -1,0 +1,8 @@
+venv/
+data/
+runs/
+*.mp4
+*.mkv
+*.pt
+ffmpeg.exe
+__pycache__/
