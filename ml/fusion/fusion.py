@@ -20,8 +20,8 @@ from ultralytics import YOLO
 from src.utils.interface import Detector  # TEP-Net
 
 # ---- Settings ----
-VIDEO_IN = os.path.join(RAIL_GUARD_ROOT, "data", "videos", "processed", "test2min.mp4")
-VIDEO_OUT = os.path.join(RAIL_GUARD_ROOT, "data", "videos", "results", "fusion_v4_2min.mp4")
+VIDEO_IN = os.path.join(RAIL_GUARD_ROOT, "data", "videos", "processed", "full_20min.mp4")
+VIDEO_OUT = os.path.join(RAIL_GUARD_ROOT, "data", "videos", "results", "fusion_full_20min.mp4")
 TEPNET_MODEL = os.path.join(TEPNET_ROOT, "weights", "chromatic-laughter-5")
 YOLO_CLASSES = [0, 2, 3, 5, 7, 19, 20]
 CONF = 0.25
