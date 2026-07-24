@@ -20,8 +20,8 @@ from ultralytics import YOLO
 from src.utils.interface import Detector  # TEP-Net
 
 # ---- Settings ----
-VIDEO_IN = os.path.join(RAIL_GUARD_ROOT, "data", "videos", "processed", "full_20min.mp4")
-VIDEO_OUT = os.path.join(RAIL_GUARD_ROOT, "data", "videos", "results", "fusion_full_20min.mp4")
+VIDEO_IN = os.path.join(RAIL_GUARD_ROOT, "data", "videos", "processed", "test2min.mp4")
+VIDEO_OUT = os.path.join(RAIL_GUARD_ROOT, "data", "videos", "results", "fusion_finetuned_2min.mp4")
 TEPNET_MODEL = os.path.join(TEPNET_ROOT, "weights", "chromatic-laughter-5")
 YOLO_CLASSES = [0, 2, 3, 5, 7, 19, 20]
 CONF = 0.25
@@ -34,8 +34,8 @@ ASSUMED_HFOV_DEG = 60.0  # assumed horizontal field of view of the camera
 BRAKE_DISTANCE_M = 100.0 # threats closer than this -> BRAKE NOW, else CAUTION
 
 print("Loading models...")
-yolo = YOLO("yolov8n.pt")
-tepnet = Detector(TEPNET_MODEL, None, "pytorch", "cpu")
+yolo = YOLO("ml/detection/railguard_best.pt")
+tepnet = Detector(TEPNET_MODEL, None, "pytorch", "cuda")
 print("Models loaded.")
 
 
@@ -127,7 +127,7 @@ def main():
             corridor, width_by_row = build_corridor_and_rails(egopath, frame.shape)
 
             results = yolo.predict(frame, conf=CONF, imgsz=1280,
-                                   classes=YOLO_CLASSES, verbose=False)
+                                   classes=YOLO_CLASSES, device=0, verbose=False)
             boxes_cache = []
             for box in results[0].boxes:
                 x1, y1, x2, y2 = map(int, box.xyxy[0])

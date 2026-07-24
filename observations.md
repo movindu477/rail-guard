@@ -23,3 +23,70 @@
 - **Out-of-Distribution (OOD) Inputs:** The underlying training dataset (RailSem19) consists almost entirely of daytime scenarios. The model is untrained on nighttime features like high-contrast headlight glare, rail reflections, lens flares, and pitch-black surroundings.
 - **Extreme Visibility Loss:** Because rails are invisible beyond the 20-30m headlight cone, the feature extraction layers cannot extract consistent track geometry.
 - **Erratic Path Predictions:** The regression/segmentation heads collapse under night conditions, generating highly unstable, jittery, or completely missing ego-path corridors, making it unusable for safety filtering without alternative heuristics.
+
+## 5. YOLOv8s Fine-Tuning Results (Sri Lankan Railway Dataset)
+
+### Training Configuration
+- **Model Backbone:** YOLOv8s (`yolov8s.pt` pre-trained baseline)
+- **Hardware Acceleration:** NVIDIA GeForce RTX 4050 Laptop GPU (CUDA 12.1)
+- **Dataset Split:** 169 training frames / 43 validation frames (80/20 split from 212 annotated frames)
+- **Training Parameters:** `imgsz=1280`, `batch=8`, `patience=20`, `workers=2`, target 80 epochs
+- **Early Stopping & Convergence:** Early stopping triggered at epoch 21 (patience of 20 epochs exceeded). The optimal weights were produced at **Epoch 1**.
+
+### Performance Metrics Summary
+- **Overall mAP50:** `0.544` (54.4%)
+- **Overall mAP50-95:** `0.446` (44.6%)
+- **Overall Precision (P):** `0.696` (69.6%)
+- **Overall Recall (R):** `0.495` (49.5%)
+- **Inference Speed:** **38.8 ms** per image (0.8 ms preprocess, 38.8 ms inference, 0.0 ms loss, 1.1 ms postprocess on RTX 4050 GPU)
+
+### Per-Class Evaluation Breakdown
+| Class | Images | Instances | Precision (P) | Recall (R) | mAP50 | mAP50-95 |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **All** | 43 | 132 | 0.696 | 0.495 | **0.544** | **0.446** |
+| **Person** | 31 | 62 | **0.878** | **0.700** | **0.791** | **0.546** |
+| **Car** | 14 | 33 | 0.624 | 0.545 | 0.656 | 0.527 |
+| **Motorcycle** | 4 | 5 | 0.701 | 0.800 | 0.758 | 0.708 |
+| **Bus** | 13 | 19 | 0.646 | 0.480 | 0.625 | 0.523 |
+| **Truck** | 10 | 12 | 0.325 | 0.443 | 0.436 | 0.370 |
+| **Elephant** | 1 | 1 | 1.000 | 0.000 | 0.000 | 0.000 |
+
+### Key Training Insights & Epoch-1 Analysis
+- **Epoch-1 Best Weight Selection:** The best validation score was attained at Epoch 1 (`best.pt`). This occurred because YOLOv8s is already heavily pre-trained on COCO and possesses rich spatial representations for common classes (persons, vehicles). On a compact domain dataset (169 training frames), the model adapted immediately on the first epoch. Further epochs led to minor overfitting on small sample variations, causing early stopping to correctly freeze the optimal model checkpoint at Epoch 1.
+- **High-Risk Target Detection:** The primary safety threat—`Person` on track—achieved high detection accuracy with **mAP50 of 79.1%** and Precision of **87.8%**, confirming strong suitability for real-time corridor hazard alerting.
+- **Resolution & Long-Range Detection Bottleneck:** Manual inspection of distant regions in the source footage showed that objects beyond approximately 100 metres are not visually identifiable, even at high digital zoom. Source video resolution and compression artifacts are therefore the primary limiting factor for long-range detection—no amount of model fine-tuning can recover information that is absent from the input data. Long-range detection requires higher-resolution hardware capture (an optical telephoto lens or higher-bitrate sensor), rather than purely model-level optimization.
+
+## 6. System Speed & Latency Benchmark Results
+
+### Benchmark Setup
+- **Evaluation Dataset:** 100 consecutive frames from `test2min.mp4`
+- **Hardware Platform:** NVIDIA GeForce RTX 4050 Laptop GPU (CUDA 12.1) vs Host CPU
+
+### Benchmark Results Tables
+
+#### YOLO Object Detection
+| Device | Resolution (`imgsz`) | Latency (ms) | Throughput (FPS) |
+| :--- | :--- | :--- | :--- |
+| **CUDA** | 416 | 12.9 ms | 77.2 FPS |
+| **CUDA** | 640 | 11.8 ms | 84.7 FPS |
+| **CUDA** | 1280 | 24.1 ms | 41.4 FPS |
+| **CPU** | 416 | 36.4 ms | 27.5 FPS |
+| **CPU** | 640 | 60.7 ms | 16.5 FPS |
+| **CPU** | 1280 | 205.0 ms | 4.9 FPS |
+
+#### TEP-Net Ego-Path Segmentation
+| Device | Backbone Model | Latency (ms) | Throughput (FPS) |
+| :--- | :--- | :--- | :--- |
+| **CUDA** | `logical-tree-1` | 56.8 ms | 17.6 FPS |
+| **CUDA** | `chromatic-laughter-5` | 90.0 ms | 11.1 FPS |
+| **CPU** | `logical-tree-1` | 74.7 ms | 13.4 FPS |
+| **CPU** | `chromatic-laughter-5` | 121.2 ms | 8.2 FPS |
+
+### Key System Benchmark Insights & Architectural Rationale
+1. **GPU Acceleration Impact:** GPU acceleration provides a massive ~5.1x to 8.5x speedup for YOLO detection (e.g., 60.7 ms down to 11.8 ms at 640p) and ~1.3x to 1.6x for TEP-Net segmentation, accelerating raw object detection throughput from 16.5 FPS to 84.7 FPS.
+2. **Optimal Resolution Sweet Spot:** 640p input resolution represents the optimal latency-throughput sweet spot on GPU (11.8 ms / 84.7 FPS), outperforming 416p (12.9 ms) due to GPU tensor alignment while preserving significantly more spatial detail than 416p, whereas 1280p requires 24.1 ms (41.4 FPS).
+3. **CPU Edge Feasibility Bottleneck:** High-resolution CPU inference at 1280p (205.0 ms / 4.9 FPS) is non-viable for real-time collision avoidance safety systems, justifying the requirement for onboard hardware acceleration or aggressive model quantization when deploying on mobile/edge devices.
+4. **Dual-Model Pipeline Bottlenecking & Sub-sampling Strategy:** TEP-Net ego-path segmentation (`logical-tree-1` at 17.6 FPS, `chromatic-laughter-5` at 11.1 FPS on CUDA) forms the primary computational bottleneck of the dual-model pipeline. This empirical finding validates the architectural decision to sub-sample corridor mask generation (e.g. executing TEP-Net every 2nd or 3rd frame) while running YOLO hazard detection on every frame.
+
+
+

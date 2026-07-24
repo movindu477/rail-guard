@@ -6,11 +6,13 @@ Press Q to quit.
 """
 
 import os
+os.environ["OMP_NUM_THREADS"] = "4"
 import sys
 import math
 import time
 import threading
 import cv2
+cv2.setNumThreads(4)
 import numpy as np
 from PIL import Image
 
@@ -25,17 +27,22 @@ VIDEO_IN = os.path.join(RAIL_GUARD_ROOT, "data", "videos", "processed", "test2mi
 TEPNET_MODEL = os.path.join(TEPNET_ROOT, "weights", "logical-tree-1")
 YOLO_CLASSES = [0, 2, 3, 5, 7, 19, 20]
 CONF = 0.3
-YOLO_IMGSZ = 640
+YOLO_IMGSZ = 416          # smaller = faster inference, steadier FPS
+DISPLAY_EVERY_INFER = False
 EXPAND_FACTOR = 3.0
 GAUGE_M = 1.676
 ASSUMED_HFOV_DEG = 60.0
 BRAKE_DISTANCE_M = 100.0
 BEEP_COOLDOWN_S = 1.0
 
+ALERT_WAV = os.path.join(os.path.dirname(os.path.abspath(__file__)), "alert.wav")
 try:
     import winsound
     def beep(freq=1000, dur=200):
-        threading.Thread(target=winsound.Beep, args=(freq, dur), daemon=True).start()
+        threading.Thread(
+            target=lambda: winsound.PlaySound(ALERT_WAV, winsound.SND_FILENAME),
+            daemon=True
+        ).start()
 except ImportError:
     def beep(freq=1000, dur=200):
         print("\a", end="")
@@ -102,16 +109,30 @@ def inference_worker():
         with state_lock:
             frame = None if latest_frame is None else latest_frame.copy()
         if frame is None:
-            time.sleep(0.005)
+            time.sleep(0.01)
             continue
+        time.sleep(0.001)  # yield to display thread
 
         t0 = time.time()
-        pil_img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-        egopath = tepnet.detect(pil_img)
-        corridor, width_by_row = build_corridor_and_rails(egopath, frame.shape)
+
+        # TEP-Net every 3rd cycle (track changes slowly), reuse in between
+        if not hasattr(inference_worker, "_c"):
+            inference_worker._c = 0
+            inference_worker._corridor = None
+            inference_worker._wbr = None
+        inference_worker._c += 1
+
+        if inference_worker._c % 3 == 1 or inference_worker._corridor is None:
+            pil_img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+            egopath = tepnet.detect(pil_img)
+            c, wbr = build_corridor_and_rails(egopath, frame.shape)
+            inference_worker._corridor = c
+            inference_worker._wbr = wbr
+        corridor = inference_worker._corridor
+        width_by_row = inference_worker._wbr
 
         results = yolo.predict(frame, conf=CONF, imgsz=YOLO_IMGSZ,
-                               classes=YOLO_CLASSES, verbose=False)
+                               classes=YOLO_CLASSES, max_det=10, verbose=False)
         boxes = []
         for box in results[0].boxes:
             x1, y1, x2, y2 = map(int, box.xyxy[0])
@@ -150,10 +171,10 @@ def main():
 
         with state_lock:
             latest_frame = frame
-            corridor = shared["corridor"]
-            width_by_row = shared["width_by_row"]
-            boxes = list(shared["boxes"])
-            infer_fps = shared["infer_fps"]
+        corridor = shared["corridor"]
+        width_by_row = shared["width_by_row"]
+        boxes = list(shared["boxes"])
+        infer_fps = shared["infer_fps"]
 
         if corridor is not None:
             overlay = frame.copy()

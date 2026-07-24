@@ -1,8 +1,15 @@
 venv/
 data/
 runs/
+results/
+build/
 *.mp4
 *.mkv
 *.pt
+*.onnx
+*.tflite
+*_saved_model/
 ffmpeg.exe
 __pycache__/
+data/dataset/
+
