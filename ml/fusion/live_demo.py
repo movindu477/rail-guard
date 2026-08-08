@@ -188,7 +188,10 @@ def main():
             on_track = corridor is not None and corridor[gy, gx] > 0
             if on_track:
                 wpx = width_by_row[gy] if width_by_row is not None else 0
-                d = (focal_px * GAUGE_M) / wpx if wpx > 1 else None
+                if wpx is not None and wpx > 1:
+                    d = (focal_px * GAUGE_M) / wpx
+                else:
+                    d = None
                 if d is not None and (worst is None or d < worst):
                     worst = d
                 d_txt = f"~{d:.0f}m" if d else "?m"

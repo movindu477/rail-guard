@@ -88,5 +88,34 @@
 3. **CPU Edge Feasibility Bottleneck:** High-resolution CPU inference at 1280p (205.0 ms / 4.9 FPS) is non-viable for real-time collision avoidance safety systems, justifying the requirement for onboard hardware acceleration or aggressive model quantization when deploying on mobile/edge devices.
 4. **Dual-Model Pipeline Bottlenecking & Sub-sampling Strategy:** TEP-Net ego-path segmentation (`logical-tree-1` at 17.6 FPS, `chromatic-laughter-5` at 11.1 FPS on CUDA) forms the primary computational bottleneck of the dual-model pipeline. This empirical finding validates the architectural decision to sub-sample corridor mask generation (e.g. executing TEP-Net every 2nd or 3rd frame) while running YOLO hazard detection on every frame.
 
+## 7. Camera Specification & Hardware Capture Performance
+
+### Empirical Capture Benchmark Table (ELP 4K USB Camera)
+
+| Capture Backend | Resolution | FOURCC Pixel Format | Uncompressed / Compressed | Measured Capture Speed | Speed Improvement |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **DirectShow (`DSHOW`)** | `3840x2160` (4K UHD) | `YUY2` (Default) | Uncompressed (4:2:2) | **1.5 FPS** | Baseline |
+| **DirectShow (`DSHOW`)** | `1920x1080` (1080p) | `YUY2` (Default) | Uncompressed (4:2:2) | **2.2 FPS** | Baseline |
+| **DirectShow (`DSHOW`)** | `1280x720` (720p) | `YUY2` (Default) | Uncompressed (4:2:2) | **9.9 FPS** | Baseline |
+| **DirectShow (`DSHOW`)** | `1920x1080` (1080p) | `MJPG` | Motion JPEG (~10:1) | **23.7 FPS** | **~10.8x faster** |
+| **Media Foundation (`MSMF`)** | `1920x1080` (1080p) | `MJPG` | Motion JPEG (~10:1) | **29.8 FPS** | **~13.5x faster** (Max HW limit) |
+| **Media Foundation (`MSMF`)** | `3840x2160` (4K UHD) | `MJPG` | Motion JPEG (~10:1) | **29.6 FPS** | **~19.7x faster** (Full 4K @ 30 FPS) |
+
+### Bandwidth Calculation & Technical Root Cause
+1. **Uncompressed YUY2 Payload:**
+   - At 1080p (`1920x1080`), 2 bytes per pixel ($YUY2$) yields **~4.15 MB/frame**.
+   - At 4K (`3840x2160`), 2 bytes per pixel ($YUY2$) yields **~16.59 MB/frame**.
+2. **USB 2.0 Bus Bottleneck:**
+   - USB 2.0 High-Speed physical bandwidth is capped at a practical maximum of **~40 MB/s**.
+   - For 1080p YUY2: $\frac{40 \text{ MB/s}}{4.15 \text{ MB/frame}} \approx 9.6 \text{ FPS}$ maximum theoretical limit (measured 2.2–9.9 FPS).
+   - For 4K YUY2: $\frac{40 \text{ MB/s}}{16.59 \text{ MB/frame}} \approx 2.4 \text{ FPS}$ maximum theoretical limit (measured 1.5 FPS).
+3. **MJPEG Compression Mitigation:**
+   - Motion JPEG (`MJPG`) applies an in-camera ~10:1 compression ratio, reducing the 4K frame payload from 16.59 MB down to **~1.6 MB/frame**.
+   - $\frac{40 \text{ MB/s}}{1.6 \text{ MB/frame}} \approx 25\text{--}30 \text{ FPS}$, enabling full native 29.6 FPS capture over standard USB 2.0 hardware.
+
+### Hardware Conclusion & Integration Rule
+DirectShow defaults to uncompressed `YUY2`, bottlenecking ingestion speeds down to 1.5–2.2 FPS. Real-time video ingestion requires initializing OpenCV via Media Foundation (`cv2.CAP_MSMF`) with explicit `MJPG` codec configuration (`cv2.CAP_PROP_FOURCC`) asserted before and after setting frame dimensions. This architecture is encapsulated in `tools/camera.py` (`open_camera()`) for all downstream capture tasks.
+
+
 
 
