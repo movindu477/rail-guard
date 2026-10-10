@@ -8,6 +8,8 @@ RailGuard Fusion Module v4
 import os
 import sys
 import math
+import argparse
+from collections import Counter
 import cv2
 import numpy as np
 from PIL import Image
@@ -18,12 +20,13 @@ sys.path.insert(0, TEPNET_ROOT)
 
 from ultralytics import YOLO
 from src.utils.interface import Detector  # TEP-Net
+from railguard_core import class_ids
 
 # ---- Settings ----
 VIDEO_IN = os.path.join(RAIL_GUARD_ROOT, "data", "videos", "processed", "test2min.mp4")
 VIDEO_OUT = os.path.join(RAIL_GUARD_ROOT, "data", "videos", "results", "fusion_finetuned_2min.mp4")
+YOLO_MODEL = os.path.join(RAIL_GUARD_ROOT, "ml", "detection", "railguard_best.pt")
 TEPNET_MODEL = os.path.join(TEPNET_ROOT, "weights", "chromatic-laughter-5")
-YOLO_CLASSES = [0, 2, 3, 5, 7, 19, 20]
 CONF = 0.25
 EXPAND_FACTOR = 3.0
 INFER_EVERY = 2
@@ -34,9 +37,10 @@ ASSUMED_HFOV_DEG = 60.0  # assumed horizontal field of view of the camera
 BRAKE_DISTANCE_M = 100.0 # threats closer than this -> BRAKE NOW, else CAUTION
 
 print("Loading models...")
-yolo = YOLO("ml/detection/railguard_best.pt")
+yolo = YOLO(YOLO_MODEL)
 tepnet = Detector(TEPNET_MODEL, None, "pytorch", "cuda")
-print("Models loaded.")
+YOLO_CLASSES = class_ids(yolo)
+print(f"Models loaded. Detecting: {[yolo.names[i] for i in YOLO_CLASSES]}")
 
 
 def build_corridor_and_rails(egopath, shape):
@@ -93,9 +97,14 @@ def estimate_distance_m(row_y, width_by_row, focal_px):
 
 
 def main():
-    cap = cv2.VideoCapture(VIDEO_IN)
+    ap = argparse.ArgumentParser(description="RailGuard fusion: annotate a video")
+    ap.add_argument("--input", default=VIDEO_IN, help="input video path")
+    ap.add_argument("--output", default=VIDEO_OUT, help="output video path")
+    args = ap.parse_args()
+
+    cap = cv2.VideoCapture(args.input)
     if not cap.isOpened():
-        print(f"ERROR: cannot open {VIDEO_IN}")
+        print(f"ERROR: cannot open {args.input}")
         return
 
     fps = cap.get(cv2.CAP_PROP_FPS)
@@ -107,13 +116,14 @@ def main():
     print(f"Assumed focal length: {focal_px:.0f} px "
           f"(HFOV {ASSUMED_HFOV_DEG} deg, frame width {w})")
 
-    os.makedirs(os.path.dirname(VIDEO_OUT), exist_ok=True)
-    out = cv2.VideoWriter(VIDEO_OUT, cv2.VideoWriter_fourcc(*"mp4v"), fps, (w, h))
+    os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
+    out = cv2.VideoWriter(args.output, cv2.VideoWriter_fourcc(*"mp4v"), fps, (w, h))
 
     corridor = np.zeros((h, w), dtype=np.uint8)
     width_by_row = np.zeros(h, dtype=np.float32)
     boxes_cache = []
     frame_idx = 0
+    class_counts = Counter()  # detections per class, over inference frames
 
     while True:
         ret, frame = cap.read()
@@ -132,6 +142,7 @@ def main():
             for box in results[0].boxes:
                 x1, y1, x2, y2 = map(int, box.xyxy[0])
                 boxes_cache.append((x1, y1, x2, y2, yolo.names[int(box.cls[0])]))
+            class_counts.update(b[4] for b in boxes_cache)
 
         overlay = frame.copy()
         overlay[corridor > 0] = (0, 180, 0)
@@ -173,7 +184,8 @@ def main():
 
     cap.release()
     out.release()
-    print(f"Done! Output: {VIDEO_OUT}")
+    print(f"Done! Output: {args.output}")
+    print(f"Detections by class: {dict(class_counts)}")
 
 
 if __name__ == "__main__":

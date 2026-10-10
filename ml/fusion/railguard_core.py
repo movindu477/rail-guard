@@ -19,7 +19,17 @@ from src.utils.interface import Detector
 
 # ---- Shared defaults ----
 GAUGE_M = 1.676
-YOLO_CLASSES = [0, 2, 3, 5, 7, 19, 20]  # person, car, motorcycle, bus, truck, cow, elephant
+# Filter by name, not index: COCO and the fine-tuned model number these differently.
+ALLOWED_NAMES = {"person", "car", "motorcycle", "bus", "truck", "cow", "elephant"}
+
+
+def class_ids(model, names=ALLOWED_NAMES):
+    """Indices in this model's own class list for the given class names."""
+    ids = [i for i, n in model.names.items() if n in names]
+    missing = set(names) - {model.names[i] for i in ids}
+    if missing:
+        print(f"WARNING: model has no class(es) {sorted(missing)}")
+    return ids
 
 
 def load_models(yolo_weights="yolov8n.pt", tepnet_model_name="chromatic-laughter-5", device="cuda"):

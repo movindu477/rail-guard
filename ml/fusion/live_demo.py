@@ -22,10 +22,10 @@ sys.path.insert(0, TEPNET_ROOT)
 
 from ultralytics import YOLO
 from src.utils.interface import Detector
+from railguard_core import class_ids
 
 VIDEO_IN = os.path.join(RAIL_GUARD_ROOT, "data", "videos", "processed", "test2min.mp4")
 TEPNET_MODEL = os.path.join(TEPNET_ROOT, "weights", "logical-tree-1")
-YOLO_CLASSES = [0, 2, 3, 5, 7, 19, 20]
 CONF = 0.3
 YOLO_IMGSZ = 416          # smaller = faster inference, steadier FPS
 DISPLAY_EVERY_INFER = False
@@ -50,6 +50,7 @@ except ImportError:
 print("Loading models...")
 yolo = YOLO("yolov8n.pt")
 tepnet = Detector(TEPNET_MODEL, None, "pytorch", "cpu")
+YOLO_CLASSES = class_ids(yolo)
 print("Models loaded. Press Q in the window to quit.")
 
 # ---- Shared state between threads ----

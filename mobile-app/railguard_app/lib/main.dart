@@ -1,6 +1,6 @@
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show rootBundle;
+import 'package:flutter/services.dart' show DeviceOrientation, rootBundle;
 import 'package:permission_handler/permission_handler.dart';
 import 'package:tflite_flutter/tflite_flutter.dart';
 import 'detector.dart';
@@ -40,6 +40,25 @@ class _CameraScreenState extends State<CameraScreen> {
   double _inferMs = 0;
   int _frames = 0;
   int _skip = 0;
+
+  static const _orientationDegrees = {
+    DeviceOrientation.portraitUp: 0,
+    DeviceOrientation.landscapeLeft: 90,
+    DeviceOrientation.portraitDown: 180,
+    DeviceOrientation.landscapeRight: 270,
+  };
+
+  /// Clockwise rotation that turns a raw sensor frame upright on screen.
+  /// Stream frames arrive in sensor orientation; the preview is rotated
+  /// for display, so frames must be rotated the same way before inference.
+  int _frameRotation() {
+    final cam = _controller!.description;
+    final device =
+        _orientationDegrees[_controller!.value.deviceOrientation] ?? 0;
+    return cam.lensDirection == CameraLensDirection.front
+        ? (cam.sensorOrientation + device) % 360
+        : (cam.sensorOrientation - device + 360) % 360;
+  }
 
   @override
   void initState() {
@@ -83,12 +102,13 @@ class _CameraScreenState extends State<CameraScreen> {
 
     try {
       final rgb = Detector.yuv420ToImage(cam);
-      final input = Detector.preprocess(rgb);
+      final input = Detector.preprocess(rgb, rotation: _frameRotation());
 
-      // Output buffer shaped [1][11][2100]
+      // Output buffer shaped like the model output: [1, 4 + classes, anchors]
+      final shape = _interpreter!.getOutputTensor(0).shape;
       final output = List.generate(
-        1,
-        (_) => List.generate(11, (_) => List.filled(2100, 0.0)),
+        shape[0],
+        (_) => List.generate(shape[1], (_) => List.filled(shape[2], 0.0)),
       );
 
       _interpreter!.run(input, output);
@@ -121,13 +141,22 @@ class _CameraScreenState extends State<CameraScreen> {
     if (_controller == null || !_controller!.value.isInitialized) {
       return Scaffold(body: Center(child: Text(_status)));
     }
+    final mirror =
+        _controller!.description.lensDirection == CameraLensDirection.front;
     return Scaffold(
+      backgroundColor: Colors.black,
       body: Stack(
         fit: StackFit.expand,
         children: [
-          CameraPreview(_controller!),
-          CustomPaint(
-            painter: BoxPainter(_dets, _labels),
+          // Center keeps the preview at its true aspect ratio; the painter is
+          // the preview's child so boxes share exactly the same area.
+          Center(
+            child: CameraPreview(
+              _controller!,
+              child: CustomPaint(
+                painter: BoxPainter(_dets, _labels, mirror: mirror),
+              ),
+            ),
           ),
           Positioned(
             top: 40,
@@ -169,7 +198,8 @@ class _CameraScreenState extends State<CameraScreen> {
 class BoxPainter extends CustomPainter {
   final List<Detection> dets;
   final List<String> labels;
-  BoxPainter(this.dets, this.labels);
+  final bool mirror; // front camera preview is mirrored
+  BoxPainter(this.dets, this.labels, {this.mirror = false});
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -179,10 +209,13 @@ class BoxPainter extends CustomPainter {
       ..color = Colors.redAccent;
 
     for (final d in dets) {
+      // Detections are normalised (0..1) to the upright frame.
+      final x1 = mirror ? 1 - d.x2 : d.x1;
+      final x2 = mirror ? 1 - d.x1 : d.x2;
       final rect = Rect.fromLTRB(
-        d.x1 * size.width,
+        x1 * size.width,
         d.y1 * size.height,
-        d.x2 * size.width,
+        x2 * size.width,
         d.y2 * size.height,
       );
       canvas.drawRect(rect, paint);

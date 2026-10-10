@@ -42,10 +42,17 @@ class Detector {
     return out;
   }
 
-  /// Build the [1,640,640,3] float input tensor.
-  static List<List<List<List<double>>>> preprocess(img.Image src) {
-    final resized =
-        img.copyResize(src, width: inputSize, height: inputSize);
+  /// Build the [1, inputSize, inputSize, 3] float input tensor.
+  ///
+  /// [rotation] is the clockwise angle (0/90/180/270) that turns the raw
+  /// sensor frame upright, so the model sees the scene as the user does and
+  /// output boxes line up with the on-screen preview.
+  static List<List<List<List<double>>>> preprocess(img.Image src,
+      {int rotation = 0}) {
+    var resized = img.copyResize(src, width: inputSize, height: inputSize);
+    if (rotation % 360 != 0) {
+      resized = img.copyRotate(resized, angle: rotation);
+    }
     return List.generate(
       1,
       (_) => List.generate(
@@ -58,9 +65,12 @@ class Detector {
     );
   }
 
-  /// Parse raw output [1,11,8400] into detections (coords in 0..1 space).
+  /// Parse raw output [1, 4 + numClasses, N] into detections.
+  ///
+  /// The model emits cx, cy, w, h in input pixels (0..inputSize); they are
+  /// normalised here so returned boxes are in 0..1 of the (rotated) frame.
   static List<Detection> parseOutput(List output) {
-    final raw = output[0] as List; // [11][8400]
+    final raw = output[0] as List; // [4 + numClasses][N]
     final n = (raw[0] as List).length;
     final dets = <Detection>[];
 
@@ -76,19 +86,25 @@ class Detector {
       }
       if (best < confThreshold) continue;
 
-      final cx = (raw[0][i] as num).toDouble();
-      final cy = (raw[1][i] as num).toDouble();
-      final w = (raw[2][i] as num).toDouble();
-      final h = (raw[3][i] as num).toDouble();
+      final cx = (raw[0][i] as num).toDouble() / inputSize;
+      final cy = (raw[1][i] as num).toDouble() / inputSize;
+      final w = (raw[2][i] as num).toDouble() / inputSize;
+      final h = (raw[3][i] as num).toDouble() / inputSize;
 
       dets.add(Detection(
-        cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2, best, bestId,
+        (cx - w / 2).clamp(0.0, 1.0),
+        (cy - h / 2).clamp(0.0, 1.0),
+        (cx + w / 2).clamp(0.0, 1.0),
+        (cy + h / 2).clamp(0.0, 1.0),
+        best,
+        bestId,
       ));
     }
     return _nms(dets);
   }
 
   /// Non-max suppression: drop overlapping duplicate boxes.
+  /// Runs on the normalised boxes from [parseOutput].
   static List<Detection> _nms(List<Detection> dets) {
     dets.sort((a, b) => b.score.compareTo(a.score));
     final keep = <Detection>[];
