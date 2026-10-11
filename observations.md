@@ -114,7 +114,7 @@
    - $\frac{40 \text{ MB/s}}{1.6 \text{ MB/frame}} \approx 25\text{--}30 \text{ FPS}$, enabling full native 29.6 FPS capture over standard USB 2.0 hardware.
 
 ### Hardware Conclusion & Integration Rule
-DirectShow defaults to uncompressed `YUY2`, bottlenecking ingestion speeds down to 1.5–2.2 FPS. Real-time video ingestion requires initializing OpenCV via Media Foundation (`cv2.CAP_MSMF`) with explicit `MJPG` codec configuration (`cv2.CAP_PROP_FOURCC`) asserted before and after setting frame dimensions. This architecture is encapsulated in `tools/camera.py` (`open_camera()`) for all downstream capture tasks.
+DirectShow defaults to uncompressed `YUY2`, bottlenecking ingestion speeds down to 1.5–2.2 FPS. Real-time video ingestion requires initializing OpenCV via Media Foundation (`cv2.CAP_MSMF`) with explicit `MJPG` codec configuration (`cv2.CAP_PROP_FOURCC`) asserted before and after setting frame dimensions. This architecture is encapsulated in `camera/capture.py` (`open_camera()`) for all downstream capture tasks.
 
 
 

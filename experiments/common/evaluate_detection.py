@@ -3,7 +3,7 @@ from ultralytics import YOLO
 import os
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-MODEL = os.path.join(ROOT, "ml", "detection", "railguard_best.pt")
+MODEL = os.path.join(ROOT, "models", "railguard_best.pt")
 DATA = os.path.join(ROOT, "data", "dataset", "yolo", "railguard.yaml")
 
 def main():
@@ -14,8 +14,8 @@ def main():
         device=0,
         split="val",
         plots=True,
-        project=os.path.join(ROOT, "results"),
-        name="eval_detection",
+        project=os.path.join(ROOT, "outputs"),
+        name="evaluation",
     )
 
     print("\n=== RESULTS ===")

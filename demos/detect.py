@@ -1,6 +1,6 @@
 from ultralytics import YOLO
 
-model = YOLO("yolov8n.pt")
+model = YOLO("models/yolov8n.pt")
 
 results = model.predict(
     source="data/videos/processed/night5min.mp4",

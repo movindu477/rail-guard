@@ -16,7 +16,7 @@ cv2.setNumThreads(4)
 import numpy as np
 from PIL import Image
 
-RAIL_GUARD_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+RAIL_GUARD_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TEPNET_ROOT = os.path.join(os.path.dirname(RAIL_GUARD_ROOT), "train-ego-path-detection")
 sys.path.insert(0, TEPNET_ROOT)
 
@@ -35,7 +35,7 @@ ASSUMED_HFOV_DEG = 60.0
 BRAKE_DISTANCE_M = 100.0
 BEEP_COOLDOWN_S = 1.0
 
-ALERT_WAV = os.path.join(os.path.dirname(os.path.abspath(__file__)), "alert.wav")
+ALERT_WAV = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "alert.wav")
 try:
     import winsound
     def beep(freq=1000, dur=200):
@@ -48,7 +48,7 @@ except ImportError:
         print("\a", end="")
 
 print("Loading models...")
-yolo = YOLO("yolov8n.pt")
+yolo = YOLO(os.path.join(RAIL_GUARD_ROOT, "models", "yolov8n.pt"))
 tepnet = Detector(TEPNET_MODEL, None, "pytorch", "cpu")
 YOLO_CLASSES = class_ids(yolo)
 print("Models loaded. Press Q in the window to quit.")

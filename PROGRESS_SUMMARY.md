@@ -1,6 +1,6 @@
 # RailGuard — Project Progress Summary
 
-*Status as of 10 October 2026 · Branch `main` @ `99e9d52`*
+*Status as of 10 October 2026 · Branch `main` @ `99e9d52` · file paths updated 11 October 2026 for the repository restructure*
 
 ---
 
@@ -34,9 +34,9 @@ The project has three parts:
 | Live real-time demo (threaded, audio alerts) | ✅ Working | Runs on a video file; live-camera input not yet connected |
 | Evaluation (accuracy + speed benchmarks) | ✅ Done | GPU vs CPU, 3 resolutions, 2 TEP-Net backbones |
 | Camera hardware (ELP 4K USB) | ✅ Characterised | 4K @ 29.6 FPS via MSMF + MJPEG; reusable `open_camera()` |
-| Mobile app (Flutter, Android) | 🟡 Partial | Camera + on-device TFLite detection works. No ego-path, distance or alerts yet. Box-drawing bug (see §11) |
-| Backend / server | ⬜ Not started | `backend/` folder is an empty placeholder |
-| Custom segmentation model | ⬜ Not started | `ml/segmentation/` is an empty placeholder; TEP-Net is used instead |
+| Mobile app (Flutter, Android) | 🟡 Partial | Camera + on-device TFLite detection works. No ego-path, distance or alerts yet. Box-scaling fix made in code, not yet tested on a phone (see §12) |
+| Backend / server | ⬜ Not planned | The empty `backend/` placeholder folder was removed |
+| Custom segmentation model | ⬜ Not started | TEP-Net is used instead; `railguard/segmentation/` holds its loader |
 
 ---
 
@@ -88,36 +88,52 @@ rail-guard/
 ├── README.md                      # placeholder (title only)
 ├── observations.md                # research log: night analysis, training, benchmarks, camera
 ├── PROGRESS_SUMMARY.md            # this document
-├── screenshots/                   # fusion demo evidence
+├── railguard/                     # the system, as an importable package
+│   ├── config.py                  # PipelineConfig: every tunable in one place
+│   ├── results.py                 # Detection and FrameResult returned per frame
+│   ├── core/
+│   │   ├── geometry.py            # rail gauge, focal length, per-row rail spacing
+│   │   ├── corridor.py            # corridor polygon/mask and the on-track test
+│   │   ├── distance.py            # gauge-referenced distance
+│   │   └── alerts.py              # threat selection, braking distance, alert tiers
+│   ├── detection/
+│   │   ├── classes.py             # hazard class names → model class ids
+│   │   └── model.py               # YOLO loading
+│   └── segmentation/
+│       └── tepnet.py              # TEP-Net location and loading
+├── demos/
+│   ├── offline_video.py           # annotate a video file (was fusion.py)
+│   ├── live_demo.py               # threaded real-time demo + audio alerts
+│   ├── detect.py                  # baseline: stock YOLOv8n on the night clip
+│   └── assets/alert.wav           # alarm sound
+├── training/
+│   ├── auto_label.py              # YOLOv8m auto-labeling (COCO → 7 RailGuard classes)
+│   ├── split_dataset.py           # 80/20 train/val split, negatives, dataset configs
+│   ├── prepare_animals.py         # elephant/cow sources and segmentation cut-outs
+│   ├── paste_augment.py           # copy-paste animals onto empty railway frames
+│   ├── train.py                   # fine-tuning script
+│   ├── compare_animals.py         # per-class comparison of trained models
+│   ├── export_tflite.py           # railguard_best.pt → ONNX(640) → TFLite
+│   └── export_mobile.py           # mobile model → ONNX(320) → TFLite
+├── experiments/
+│   ├── common/
+│   │   ├── evaluate_detection.py  # mAP / precision / recall per class
+│   │   └── benchmark_speed.py     # YOLO + TEP-Net latency, GPU vs CPU
+│   └── e1_corridor/ e2_distance/ e3_range/ e4_illumination/   # planned experiments (empty)
+├── camera/
+│   ├── capture.py                 # ★ reusable open_camera() (MSMF + MJPEG)
+│   ├── benchmarks/                # camera_check, camera_format, camera_fps,
+│   │                              #   camera_fps_mjpg, camera_4k_benchmark
+│   └── calibration/               # planned (empty)
+├── outputs/figures/               # fusion demo evidence
 │   ├── brake_now.png              #   person on track at ~22 m → BRAKE NOW
 │   ├── caution.png                #   distant threat → CAUTION
 │   └── ignored_objs.png           #   people beside the track are correctly ignored
-├── ml/
-│   ├── detection/
-│   │   ├── detect.py              # baseline: pretrained YOLOv8n on night clip
-│   │   ├── split_dataset.py       # 80/20 train/val split + railguard.yaml
-│   │   ├── train.py               # fine-tuning script (currently set to the mobile YOLOv8n run)
-│   │   ├── export_tflite.py       # railguard_best.pt → ONNX(640) → TFLite
-│   │   └── export_mobile.py       # mobile model → ONNX(320) → TFLite
-│   ├── fusion/
-│   │   ├── auto_label.py          # YOLOv8m auto-labeling (COCO → 7 RailGuard classes)
-│   │   ├── fusion.py              # Fusion v4: offline video processing
-│   │   ├── live_demo.py           # Live Demo v2: threaded real-time + audio alerts
-│   │   ├── railguard_core.py      # shared fusion functions (corridor, distance, threats)
-│   │   └── alert.wav              # alarm sound
-│   └── evaluation/
-│       ├── evaluate_detection.py  # mAP / precision / recall per class
-│       └── benchmark_speed.py     # YOLO + TEP-Net latency, GPU vs CPU
-├── tools/                         # USB camera investigation
-│   ├── camera.py                  # ★ reusable open_camera() (MSMF + MJPEG)
-│   ├── camera_check.py            # probe indices & supported resolutions
-│   ├── camera_format.py           # report default FOURCC per backend
-│   ├── camera_fps.py              # DSHOW FPS at 4K/1080p/720p
-│   ├── camera_fps_mjpg.py         # DSHOW vs MSMF at 1080p MJPEG
-│   └── camera_4k_benchmark.py     # MSMF 4K MJPEG throughput
-└── mobile-app/railguard_app/      # Flutter app (see §9)
+├── third_party/                   # planned home of the TEP-Net submodule (empty)
+└── mobile/                        # Flutter app (see §9)
     ├── lib/main.dart              # camera screen, inference loop, overlay
     ├── lib/detector.dart          # YUV→RGB, preprocessing, output parsing, NMS
+    ├── test/detector_test.dart    # detector unit tests
     ├── assets/labels.txt          # 7 class names
     └── android/ …                 # TFLite packaging config, permissions
 ```
@@ -128,13 +144,14 @@ rail-guard/
 | :--- | :--- |
 | `data/videos/raw/` | `srilanka_clean_full.mp4` (~1.1 GB, daytime ride), `srilanka_night_full.mp4` (~89 MB) |
 | `data/videos/processed/` | `test2min`, `test5min`, `trimmed_8min`, `full_20min`, `night5min` clips |
-| `data/videos/results/` | Output videos: `fusion_finetuned_2min(_smooth)`, `fusion_v4_2min_smooth`, `fusion_full_20min_smooth`, `tepnet_test2min`, `tepnet_night5min`, `yolo_640/1280/night` |
+| `outputs/videos/` | Output videos: `fusion_v5_2min`, `fusion_v5_8min`, `fusion_v5_night5min`, `tepnet_test2min`, `tepnet_night5min`, and the stock-YOLO baselines `yolo_640/1280/night` |
 | `data/frames/` | 12 night frames used for the human-baseline study |
-| `data/dataset/` | 598 frames + labels (with `labels_backup`, `labels_v1_backup`, `labels_reviewed`), and the `yolo/` train/val split |
-| `results/` | `training_run1/` (YOLOv8s curves, weights), `eval_detection/`, `eval_detection-2/` |
-| `ml/detection/` | `railguard_best.pt` (YOLOv8s, 22.6 MB), `railguard_best_320.onnx`, two TFLite `saved_model` folders |
-| `mobile-app/.../assets/` | `railguard_mobile_320_float32.tflite` (12 MB, used by the app), `railguard_best_320_float32.tflite` (44.6 MB, unused) |
-| repo root | `yolov8n.pt`, `yolov8s.pt`, `yolov8m.pt`, `yolo26n.pt`, `ffmpeg.exe`, `venv/` |
+| `data/dataset/` | 598 frames + labels (with `labels_backup`), the `yolo/` train/val split and negatives, and the animal data: `wildlife/`, `coco_cows/`, `wildlife_elephants/`, `animal_cutouts/`, `synthetic/` |
+| `outputs/training/` | `training_run1/` (YOLOv8s curves, weights), `synthetic_preview.jpg` |
+| `outputs/evaluation/` | Detection evaluation curves and confusion matrices |
+| `models/` | `railguard_best.pt` (YOLOv8s, 22.6 MB), `railguard_mobile_320_saved_model/`, and the base weights `yolov8n.pt`, `yolov8s.pt`, `yolov8m.pt`, `yolo11m-seg.pt` |
+| `mobile/assets/` | `railguard_mobile_320_float32.tflite` (12 MB, used by the app) |
+| repo root | `ffmpeg.exe`, `venv/` |
 | `C:\Users\USER\runs\detect\` | `railguard_finetune`, `railguard_mobile` (mobile YOLOv8n weights) |
 | `../train-ego-path-detection/` | **External dependency**: TEP-Net repo (irtrailenium), with weights `logical-tree-1`, `chromatic-laughter-5` and others |
 
@@ -144,22 +161,22 @@ rail-guard/
 
 1. **Source footage**: front-cab ride videos of Sri Lankan railways (a full daytime ride and a night ride), trimmed with `ffmpeg` into 2-, 5-, 8- and 20-minute working clips.
 2. **Frame extraction**: 598 frames sampled into `data/dataset/images/`.
-3. **Auto-labeling** (`ml/fusion/auto_label.py`): YOLOv8m (COCO) runs at 1280 px, conf 0.25. Its COCO classes are remapped to the 7 RailGuard classes:
+3. **Auto-labeling** (`training/auto_label.py`): YOLOv8m (COCO) runs at 1280 px, conf 0.25. Its COCO classes are remapped to the 7 RailGuard classes:
 
    | RailGuard ID | 0 | 1 | 2 | 3 | 4 | 5 | 6 |
    | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
    | Class | person | car | motorcycle | bus | truck | cow | elephant |
    | COCO ID | 0 | 2 | 3 | 5 | 7 | 19 | 20 |
 
-4. **Manual review**: the auto labels were corrected by hand, with backups kept at each stage (`labels_backup`, `labels_v1_backup`, `labels_reviewed`).
-5. **Split** (`ml/detection/split_dataset.py`): only frames with at least one object are kept (212 frames). These are shuffled with seed 42 into **169 train / 43 val**, and `railguard.yaml` is generated.
+4. **Manual review**: the auto labels were corrected by hand, with the pre-review labels kept in `labels_backup`.
+5. **Split** (`training/split_dataset.py`): only frames with at least one object are kept (212 frames). These are shuffled with seed 42 into **169 train / 43 val**, and `railguard.yaml` is generated.
 
 ---
 
 ## 6. Object Detection
 
 ### 6.1 Baseline
-`detect.py` ran the stock COCO YOLOv8n on the night clip (1280 px, RailGuard classes only) to establish out-of-the-box behaviour.
+`demos/detect.py` ran the stock COCO YOLOv8n on the night clip (1280 px, RailGuard classes only) to establish out-of-the-box behaviour.
 
 ### 6.2 Fine-tuned desktop model: `railguard_best.pt` (YOLOv8s)
 - Hardware: RTX 4050 Laptop GPU (CUDA 12.1). Settings: `imgsz=1280`, `batch=8`, `patience=20`, 80 epochs planned.
@@ -180,7 +197,7 @@ The most important safety class, **Person, reaches mAP50 0.79 with 0.88 precisio
 ### 6.3 Fine-tuned mobile model: `railguard_mobile` (YOLOv8n)
 - Same dataset and settings, using the smaller YOLOv8n so it can run on a phone.
 - Best mAP50 **0.493** (mAP50-95 0.322) at epoch 21; early-stopped at epoch 43.
-- Exported via `export_mobile.py`: PyTorch → ONNX (320×320) → `onnx2tf` → **float32 TFLite (12 MB)**.
+- Exported via `training/export_mobile.py`: PyTorch → ONNX (320×320) → `onnx2tf` → **float32 TFLite (12 MB)**.
   - Input: `[1, 320, 320, 3]`. Output: `[1, 11, 2100]`, i.e. 4 box values plus 7 class scores for 2100 anchors.
 
 ### 6.4 Long-range limitation
@@ -203,21 +220,23 @@ Manual inspection shows that objects beyond about **100 m are not identifiable**
 
 ## 8. Fusion Pipeline: How It Works
 
+> **Note (11 October):** the fusion logic now lives in the `railguard/` package. The two demo scripts are being rewritten on top of it, and the alert threshold is moving from the fixed 100 m described below to braking distance (400 m at 60 km/h).
+
 Version history:
 - **v1** (`a7b0269`): baseline YOLO + TEP-Net overlay.
 - **v2/v3** (`68ea8b5`): a perspective-aware corridor.
 - **v4** (`e06f933`): adds distance estimation and tiered alerts, and was later switched to the fine-tuned model (`c156312`, `489b77a`).
 
-### 8.1 Corridor construction (`build_corridor_and_rails`)
+### 8.1 Corridor construction (`railguard/core/corridor.py`, `geometry.py`)
 For each pair of left/right rail points from TEP-Net:
 - Compute the centre-line and the half-gauge width in pixels.
-- **Widen it ×3** (`EXPAND_FACTOR = 3.0`) to get a safety corridor. This covers the train body and the clearance envelope, not just the rails. The corridor narrows naturally with perspective as the track recedes.
+- **Widen it ×3** (`expand_factor = 3.0`) to get a safety corridor. This covers the train body and the clearance envelope, not just the rails. The corridor narrows naturally with perspective as the track recedes.
 - Record the **rail width in pixels for every image row**, and interpolate between rows where TEP-Net gives no points.
 - Fill the resulting polygon to get a binary mask, shown as the green overlay.
 
 ### 8.2 Threat test
 - Each detection's **foot point** is the bottom-centre of its box, i.e. where the object touches the ground.
-- If the foot point lies inside the corridor mask, the object is a **THREAT** (red box). Otherwise it is drawn grey and ignored (see `screenshots/ignored_objs.png`).
+- If the foot point lies inside the corridor mask, the object is a **THREAT** (red box). Otherwise it is drawn grey and ignored (see `outputs/figures/ignored_objs.png`).
 
 ### 8.3 Distance estimation
 Sri Lanka uses **broad gauge, 1.676 m between the rails**. At the image row where an object stands, the rail spacing in pixels acts as a ruler:
@@ -235,20 +254,20 @@ distance_m = focal_px × 1.676 / rail_width_px(row)
 
 ### 8.5 Two runtime modes
 
-| | `fusion.py` (offline) | `live_demo.py` (real-time) |
+| | `demos/offline_video.py` (offline) | `demos/live_demo.py` (real-time) |
 | :--- | :--- | :--- |
 | Purpose | Render annotated output video | Live on-screen demo |
 | Detector | `railguard_best.pt`, 1280 px, CUDA | `yolov8n.pt` (stock COCO), 416 px, max 10 dets |
 | TEP-Net | `chromatic-laughter-5`, CUDA | `logical-tree-1`, CPU |
 | Scheduling | Both models every 2nd frame | Background worker thread; TEP-Net every 3rd cycle; display paced to the source FPS so playback stays smooth |
-| Output | `data/videos/results/*.mp4` | OpenCV window with inference FPS and audio |
+| Output | `outputs/videos/*.mp4` | OpenCV window with inference FPS and audio |
 
-`railguard_core.py` contains the same logic as importable functions: `load_models`, `build_corridor_and_rails`, `focal_from_fov`, `estimate_distance_m`, `classify_threats`.
+The `railguard/` package contains the same logic as importable functions: `corridor_polygon` and `build_corridor`, `rail_width_by_row`, `focal_from_fov`, `estimate_distance_m`, `classify_threats`, `alert_level`, `load_yolo`, `load_tepnet`.
 
 ### 8.6 Evidence
-- `screenshots/brake_now.png`: a person standing between the rails at ~22 m triggers BRAKE NOW, while the people on the left track are correctly ignored.
-- `screenshots/caution.png` and `screenshots/ignored_objs.png`: further examples.
-- Full processed rides: `fusion_full_20min_smooth.mp4` and `fusion_v4_2min_smooth.mp4`.
+- `outputs/figures/brake_now.png`: a person standing between the rails at ~22 m triggers BRAKE NOW, while the people on the left track are correctly ignored.
+- `outputs/figures/caution.png` and `outputs/figures/ignored_objs.png`: further examples.
+- Processed clips: `outputs/videos/fusion_v5_2min.mp4` and `fusion_v5_8min.mp4`.
 
 ---
 
@@ -264,7 +283,7 @@ distance_m = focal_px × 1.676 / rail_width_px(row)
   - the duplicate `tensorflow-lite-api/gpu` modules are excluded;
   - `androidx.core` is pinned to 1.12.0 for dependency compatibility.
 
-### 9.2 How it works (`lib/main.dart` + `lib/detector.dart`)
+### 9.2 How it works (`mobile/lib/main.dart` + `mobile/lib/detector.dart`)
 1. **Startup**: requests camera and location permissions, then loads `railguard_mobile_320_float32.tflite` and `labels.txt` from the assets.
 2. **Camera**: opens the first camera at `ResolutionPreset.low` and streams YUV420 frames.
 3. **Throttling**: only **every 8th frame** is processed, and a frame is skipped if the previous inference is still running.
@@ -285,7 +304,7 @@ distance_m = focal_px × 1.676 / rail_width_px(row)
 
 ## 10. Camera Hardware (ELP 4K USB)
 
-The `tools/` scripts show that OpenCV's default **DirectShow** backend captures uncompressed YUY2. That saturates USB 2.0 (~40 MB/s), giving only 1.5 FPS at 4K and 2.2 FPS at 1080p.
+The `camera/benchmarks/` scripts show that OpenCV's default **DirectShow** backend captures uncompressed YUY2. That saturates USB 2.0 (~40 MB/s), giving only 1.5 FPS at 4K and 2.2 FPS at 1080p.
 
 | Backend | Resolution | Format | Measured FPS |
 | :--- | :--- | :--- | :--- |
@@ -294,7 +313,7 @@ The `tools/` scripts show that OpenCV's default **DirectShow** backend captures 
 | **MSMF** | 1080p | MJPG | **29.8** |
 | **MSMF** | **4K** | MJPG | **29.6** |
 
-**Rule:** open the camera with Media Foundation (`cv2.CAP_MSMF`) and set the `MJPG` FOURCC both before and after setting the resolution. `tools/camera.py → open_camera()` wraps this. The result is **full 4K at ~30 FPS**, which addresses the long-range resolution limit from §6.4.
+**Rule:** open the camera with Media Foundation (`cv2.CAP_MSMF`) and set the `MJPG` FOURCC both before and after setting the resolution. `camera/capture.py → open_camera()` wraps this. The result is **full 4K at ~30 FPS**, which addresses the long-range resolution limit from §6.4.
 
 ---
 
@@ -318,7 +337,7 @@ Takeaways:
 - 1280 px on CPU is too slow for real-time use.
 
 ### 11.2 Accuracy
-See §6.2. The full curves and confusion matrices are in `results/eval_detection/` and `results/training_run1/`.
+See §6.2. The full curves and confusion matrices are in `outputs/evaluation/` and `outputs/training/training_run1/`.
 
 ---
 
@@ -327,23 +346,23 @@ See §6.2. The full curves and confusion matrices are in `results/eval_detection
 | # | Issue | Where | Impact |
 | :--- | :--- | :--- | :--- |
 | 1 | ✅ **Fixed (in code; still to test on a phone).** The TFLite boxes are in pixels (0–320) but were treated as 0–1. Changes: `parseOutput` now divides by `inputSize` and clamps; frames are rotated upright using the sensor and device orientation before inference; the overlay is drawn as `CameraPreview`'s child at the true aspect ratio; the output buffer is sized from the model's tensor shape. | `detector.dart`, `main.dart` | Covered by `test/detector_test.dart` (6 tests). |
-| 2 | ✅ **Fixed.** Fusion v4 filtered with *COCO* IDs `[0,2,3,5,7,19,20]`, but `railguard_best.pt` uses 0–6, so car, truck and elephant were silently dropped. Filtering now goes by class name (`railguard_core.ALLOWED_NAMES` + `class_ids()`). Re-run on `test2min`: 1,383 car and 187 truck detections now appear. | `fusion.py`, `live_demo.py`, `railguard_core.py` | Outputs regenerated as `fusion_v5_*.mp4`. Older `fusion_finetuned_*` videos still have the bug. |
-| 3 | The live demo uses stock COCO `yolov8n.pt`, not the fine-tuned model. | `live_demo.py` | The live demo does not reflect the fine-tuning work. |
-| 4 | The fusion logic is copy-pasted in three files; `railguard_core.py` exists but is not imported. | `fusion.py`, `live_demo.py` | Changes can drift between the scripts. |
+| 2 | ✅ **Fixed.** Fusion v4 filtered with *COCO* IDs `[0,2,3,5,7,19,20]`, but `railguard_best.pt` uses 0–6, so car, truck and elephant were silently dropped. Filtering now goes by class name (`ALLOWED_NAMES` + `class_ids()` in `railguard/detection/classes.py`). Re-run on `test2min`: 1,383 car and 187 truck detections now appear. | `railguard/detection/classes.py`, the two demo scripts | Outputs regenerated as `fusion_v5_*.mp4`. The older `fusion_finetuned_*` videos, which had the bug, were deleted. |
+| 3 | The live demo uses stock COCO `yolov8n.pt`, not the fine-tuned model. | `demos/live_demo.py` | The live demo does not reflect the fine-tuning work. |
+| 4 | 🟡 **In progress.** The fusion logic was copy-pasted in three files. It now has one home in the `railguard/` package, but the two demo scripts still carry their own copies until they are rewritten. | `demos/offline_video.py`, `demos/live_demo.py` | Changes can drift between the scripts until the rewrite. |
 | 5 | Distance relies on an **assumed 60° HFOV**, not a calibrated camera. | fusion | Absolute distances are approximate until the ELP camera is calibrated. |
-| 6 | The live demo reads a video file; the 4K camera is not connected yet. | `live_demo.py` | `open_camera()` is ready but unused. |
+| 6 | The live demo reads a video file; the 4K camera is not connected yet. | `demos/live_demo.py` | `open_camera()` is ready but unused. |
 | 7 | Night ego-path is unreliable. | TEP-Net | No reliable corridor at night, so threats cannot be filtered. |
 | 8 | Small dataset: 43 val images. Only **one** elephant is labeled in the whole dataset (`frame_0050`), and the model scores it at just 0.07 confidence. There are no cow labels. | data | The model cannot reliably detect elephants or cows yet; more animal data is needed. |
-| 9 | Pixel-by-pixel YUV→RGB in Dart is CPU-heavy. | `detector.dart` | Forces the 8-frame skip and caps the mobile FPS. |
-| 10 | Mobile housekeeping (the failing default `widget_test.dart` and stale 640/8400 comments are now fixed): the unused 44.6 MB TFLite file bloats the APK; the app ID is `com.example.*` and release builds are signed with the debug key. | mobile app | Cleanup needed before any release build. |
-| 11 | Reproducibility: no `requirements.txt` for rail-guard; absolute paths in `export_mobile.py`; TEP-Net lives outside the repo (with a modified `requirements.txt`); the README is empty. | repo | Hard to set up on another machine. |
+| 9 | Pixel-by-pixel YUV→RGB in Dart is CPU-heavy. | `mobile/lib/detector.dart` | Forces the 8-frame skip and caps the mobile FPS. |
+| 10 | Mobile housekeeping (the failing default `widget_test.dart`, the stale 640/8400 comments and the unused 44.6 MB TFLite file are now dealt with): the app ID is `com.example.*` and release builds are signed with the debug key. | mobile app | Cleanup needed before any release build. |
+| 11 | Reproducibility: no `requirements.txt` for rail-guard; an absolute path to the training run in `training/export_mobile.py`; TEP-Net lives outside the repo (with the optional TensorRT lines commented out of its `requirements.txt`); the README is empty. | repo | Hard to set up on another machine. |
 
 ---
 
 ## 13. Recommended Next Steps
 
 1. **Quick fixes:** issues #1 (mobile box scale) and #2 (fusion class filter), then re-render the demo videos.
-2. **Consolidate** `fusion.py` and `live_demo.py` onto `railguard_core.py`, and switch the live demo to the fine-tuned model.
+2. **Consolidate** `demos/offline_video.py` and `demos/live_demo.py` onto the `railguard/` package, and switch the live demo to the fine-tuned model.
 3. **Connect the ELP camera** to the live demo via `open_camera()`, and **calibrate it** to replace the assumed 60° HFOV.
 4. **Mobile phase 2:**
    - port the corridor logic, possibly with a lightweight TEP-Net TFLite export or a simpler track-region heuristic;
@@ -354,5 +373,4 @@ See §6.2. The full curves and confusion matrices are in `results/eval_detection
    - collect and label night frames;
    - consider fine-tuning TEP-Net on night data, or a fallback corridor when TEP-Net confidence is low.
 6. **Grow the dataset**, especially animals (cow, elephant) and trucks, and re-evaluate.
-7. **Repo hygiene:** a proper README, `requirements.txt`, setup instructions for the TEP-Net dependency, and an updated widget test.
-8. **Backend** (planned folder): decide on scope, e.g. incident logging or fleet dashboard, or remove the folder.
+7. **Repo hygiene:** a proper README, `requirements.txt`, and setup instructions for the TEP-Net dependency.

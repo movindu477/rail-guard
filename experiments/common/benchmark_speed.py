@@ -12,7 +12,7 @@ from ultralytics import YOLO
 from src.utils.interface import Detector
 
 VIDEO = os.path.join(ROOT, "data", "videos", "processed", "test2min.mp4")
-MODEL = os.path.join(ROOT, "ml", "detection", "railguard_best.pt")
+MODEL = os.path.join(ROOT, "models", "railguard_best.pt")
 N_FRAMES = 100
 
 def grab_frames(n):

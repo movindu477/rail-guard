@@ -5,7 +5,7 @@ Outputs YOLO-format label files that you then review/correct.
 import os
 from ultralytics import YOLO
 
-RAIL_GUARD_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+RAIL_GUARD_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 IMAGES_DIR = os.path.join(RAIL_GUARD_ROOT, "data", "dataset", "images")
 LABELS_DIR = os.path.join(RAIL_GUARD_ROOT, "data", "dataset", "labels")
 os.makedirs(LABELS_DIR, exist_ok=True)
@@ -14,7 +14,7 @@ os.makedirs(LABELS_DIR, exist_ok=True)
 COCO_KEEP = {0: 0, 2: 1, 3: 2, 5: 3, 7: 4, 19: 5, 20: 6}
 # 0 person, 1 car, 2 motorcycle, 3 bus, 4 truck, 5 cow, 6 elephant
 
-model = YOLO("yolov8m.pt")  # downloads first run (~50MB)
+model = YOLO(os.path.join(RAIL_GUARD_ROOT, "models", "yolov8m.pt"))  # downloads first run (~50MB)
 
 imgs = [f for f in os.listdir(IMAGES_DIR) if f.lower().endswith((".jpg", ".png"))]
 print(f"Labeling {len(imgs)} images...")

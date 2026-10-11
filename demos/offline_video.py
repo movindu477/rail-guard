@@ -14,7 +14,7 @@ import cv2
 import numpy as np
 from PIL import Image
 
-RAIL_GUARD_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+RAIL_GUARD_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TEPNET_ROOT = os.path.join(os.path.dirname(RAIL_GUARD_ROOT), "train-ego-path-detection")
 sys.path.insert(0, TEPNET_ROOT)
 
@@ -24,8 +24,8 @@ from railguard_core import class_ids
 
 # ---- Settings ----
 VIDEO_IN = os.path.join(RAIL_GUARD_ROOT, "data", "videos", "processed", "test2min.mp4")
-VIDEO_OUT = os.path.join(RAIL_GUARD_ROOT, "data", "videos", "results", "fusion_finetuned_2min.mp4")
-YOLO_MODEL = os.path.join(RAIL_GUARD_ROOT, "ml", "detection", "railguard_best.pt")
+VIDEO_OUT = os.path.join(RAIL_GUARD_ROOT, "outputs", "videos", "fusion_finetuned_2min.mp4")
+YOLO_MODEL = os.path.join(RAIL_GUARD_ROOT, "models", "railguard_best.pt")
 TEPNET_MODEL = os.path.join(TEPNET_ROOT, "weights", "chromatic-laughter-5")
 CONF = 0.25
 EXPAND_FACTOR = 3.0

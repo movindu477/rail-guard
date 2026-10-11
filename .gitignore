@@ -1,10 +1,13 @@
 venv/
 data/
 runs/
-results/
+outputs/training/
+outputs/evaluation/
+outputs/videos/
 build/
 *.mp4
 *.mkv
+*.avi
 *.pt
 *.onnx
 *.tflite
