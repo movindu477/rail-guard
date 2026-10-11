@@ -1,0 +1,3 @@
+[submodule "third_party/train-ego-path-detection"]
+	path = third_party/train-ego-path-detection
+	url = https://github.com/irtrailenium/train-ego-path-detection.git

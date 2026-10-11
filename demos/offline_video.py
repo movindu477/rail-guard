@@ -15,7 +15,7 @@ import numpy as np
 from PIL import Image
 
 RAIL_GUARD_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-TEPNET_ROOT = os.path.join(os.path.dirname(RAIL_GUARD_ROOT), "train-ego-path-detection")
+TEPNET_ROOT = os.path.join(RAIL_GUARD_ROOT, "third_party", "train-ego-path-detection")
 sys.path.insert(0, TEPNET_ROOT)
 
 from ultralytics import YOLO

@@ -5,11 +5,10 @@ import numpy as np
 from PIL import Image
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-TEPNET_ROOT = os.path.join(os.path.dirname(ROOT), "train-ego-path-detection")
-sys.path.insert(0, TEPNET_ROOT)
+sys.path.insert(0, ROOT)
 
 from ultralytics import YOLO
-from src.utils.interface import Detector
+from railguard.segmentation.tepnet import load_tepnet
 
 VIDEO = os.path.join(ROOT, "data", "videos", "processed", "test2min.mp4")
 MODEL = os.path.join(ROOT, "models", "railguard_best.pt")
@@ -36,7 +35,7 @@ def bench_yolo(frames, imgsz, device):
     return dt * 1000
 
 def bench_tepnet(frames, model_name, device):
-    d = Detector(os.path.join(TEPNET_ROOT, "weights", model_name), None, "pytorch", device)
+    d = load_tepnet(model_name, device)
     pil = [Image.fromarray(cv2.cvtColor(f, cv2.COLOR_BGR2RGB)) for f in frames]
     d.detect(pil[0])  # warmup
     t0 = time.time()
