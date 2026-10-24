@@ -3,19 +3,23 @@
 import cv2
 import numpy as np
 
-from .geometry import rail_points
+from .geometry import GAUGE_M, rail_points
 
 
-def corridor_polygon(egopath, shape, expand_factor=3.0):
-    """Corridor outline: the rails widened by expand_factor around the track
-    centre-line, as an (N, 2) int32 array of x, y. None with no usable path."""
+def corridor_polygon(egopath, shape, half_width_m):
+    """Corridor outline: half_width_m either side of the track centre-line,
+    as an (N, 2) int32 array of x, y. None with no usable path.
+
+    The rails are GAUGE_M apart, so at each row the rail spacing in pixels
+    gives the pixels-per-metre scale there.
+    """
     h, w = shape[:2]
     pts = rail_points(egopath)
     if not pts:
         return None
     exp_left, exp_right = [], []
     for y, cx, width in pts:
-        e = width / 2.0 * expand_factor
+        e = half_width_m * width / GAUGE_M
         exp_left.append((int(cx - e), int(y)))
         exp_right.append((int(cx + e), int(y)))
     polygon = np.array(exp_left + exp_right[::-1], dtype=np.int32)
@@ -32,9 +36,9 @@ def polygon_mask(polygon, shape):
     return mask
 
 
-def build_corridor(egopath, shape, expand_factor=3.0):
+def build_corridor(egopath, shape, half_width_m):
     """Perspective-aware corridor mask. All zeros when there is no usable path."""
-    return polygon_mask(corridor_polygon(egopath, shape, expand_factor), shape)
+    return polygon_mask(corridor_polygon(egopath, shape, half_width_m), shape)
 
 
 def foot_point(x1, y1, x2, y2):

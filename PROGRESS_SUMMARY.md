@@ -99,8 +99,10 @@ rail-guard/
 │   ├── detection/
 │   │   ├── classes.py             # hazard class names → model class ids
 │   │   └── model.py               # YOLO loading
-│   └── segmentation/
-│       └── tepnet.py              # TEP-Net location and loading
+│   ├── segmentation/
+│   │   └── tepnet.py              # TEP-Net location and loading
+│   └── camera/
+│       └── capture.py             # ★ reusable open_camera() (MSMF + MJPEG)
 ├── demos/
 │   ├── offline_video.py           # annotate a video file (was fusion.py)
 │   ├── live_demo.py               # threaded real-time demo + audio alerts
@@ -121,7 +123,6 @@ rail-guard/
 │   │   └── benchmark_speed.py     # YOLO + TEP-Net latency, GPU vs CPU
 │   └── e1_corridor/ e2_distance/ e3_range/ e4_illumination/   # planned experiments (empty)
 ├── camera/
-│   ├── capture.py                 # ★ reusable open_camera() (MSMF + MJPEG)
 │   ├── benchmarks/                # camera_check, camera_format, camera_fps,
 │   │                              #   camera_fps_mjpg, camera_4k_benchmark
 │   └── calibration/               # planned (empty)
@@ -230,7 +231,7 @@ Version history:
 ### 8.1 Corridor construction (`railguard/core/corridor.py`, `geometry.py`)
 For each pair of left/right rail points from TEP-Net:
 - Compute the centre-line and the half-gauge width in pixels.
-- **Widen it ×3** (`expand_factor = 3.0`) to get a safety corridor. This covers the train body and the clearance envelope, not just the rails. The corridor narrows naturally with perspective as the track recedes.
+- **Widen it to the train envelope plus a margin**: half-width = 0.838 m × `envelope_factor` (1.9, i.e. 3.2 m Sri Lankan rolling stock ÷ 1.676 m gauge) + `safety_margin_m` (0.5 m) = **2.09 m** either side of the centre-line. The rail spacing at each row (1.676 m) converts metres to pixels there, so the corridor narrows naturally with perspective as the track recedes. (Earlier versions used a ×3 widening, 2.51 m either side.)
 - Record the **rail width in pixels for every image row**, and interpolate between rows where TEP-Net gives no points.
 - Fill the resulting polygon to get a binary mask, shown as the green overlay.
 
@@ -313,7 +314,7 @@ The `camera/benchmarks/` scripts show that OpenCV's default **DirectShow** backe
 | **MSMF** | 1080p | MJPG | **29.8** |
 | **MSMF** | **4K** | MJPG | **29.6** |
 
-**Rule:** open the camera with Media Foundation (`cv2.CAP_MSMF`) and set the `MJPG` FOURCC both before and after setting the resolution. `camera/capture.py → open_camera()` wraps this. The result is **full 4K at ~30 FPS**, which addresses the long-range resolution limit from §6.4.
+**Rule:** open the camera with Media Foundation (`cv2.CAP_MSMF`) and set the `MJPG` FOURCC both before and after setting the resolution. `railguard/camera/capture.py → open_camera()` wraps this. The result is **full 4K at ~30 FPS**, which addresses the long-range resolution limit from §6.4.
 
 ---
 

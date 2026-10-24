@@ -1,0 +1,7 @@
+dataset,class,instances,mAP50,mAP50-95,recall@0.25,precision@0.25
+railway val,person,99,0.632,0.377,0.404,0.87
+railway val,car,82,0.583,0.449,0.439,0.75
+railway val,motorcycle,9,0.146,0.053,0.0,0.0
+railway val,bus,44,0.476,0.362,0.318,0.7
+railway val,truck,16,0.254,0.199,0.562,0.188
+railway val,elephant,1,0.0,0.0,0.0,0.0

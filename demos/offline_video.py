@@ -1,191 +1,80 @@
-"""
-RailGuard Fusion Module v4
-- Perspective-aware corridor (v3)
-- NEW: distance estimation via rail-gauge reference (Sri Lanka broad gauge 1.676 m)
-- NEW: tiered alerts (CAUTION / BRAKE NOW)
+"""Run the RailGuard pipeline on a recorded video and write an annotated copy.
+
+    python demos/offline_video.py
+    python demos/offline_video.py --input clip.mp4 --output out.mp4 --calib camera/calibration/elp_wide.npz
+
+Draws the corridor, every detection (on-track vs off-track), the distance to
+each on-track object and the alert banner. Without --calib, distances use an
+assumed field of view and every frame says so.
 """
 
-import os
-import sys
-import math
 import argparse
+import os
+import time
 from collections import Counter
+
 import cv2
-import numpy as np
-from PIL import Image
 
-RAIL_GUARD_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-TEPNET_ROOT = os.path.join(RAIL_GUARD_ROOT, "third_party", "train-ego-path-detection")
-sys.path.insert(0, TEPNET_ROOT)
+from railguard.config import REPO_ROOT, PipelineConfig
+from railguard.pipeline import RailGuardPipeline
 
-from ultralytics import YOLO
-from src.utils.interface import Detector  # TEP-Net
-from railguard_core import class_ids
+from draw import draw  # demos/draw.py
 
-# ---- Settings ----
-VIDEO_IN = os.path.join(RAIL_GUARD_ROOT, "data", "videos", "processed", "test2min.mp4")
-VIDEO_OUT = os.path.join(RAIL_GUARD_ROOT, "outputs", "videos", "fusion_finetuned_2min.mp4")
-YOLO_MODEL = os.path.join(RAIL_GUARD_ROOT, "models", "railguard_best.pt")
-TEPNET_MODEL = os.path.join(TEPNET_ROOT, "weights", "chromatic-laughter-5")
-CONF = 0.25
-EXPAND_FACTOR = 3.0
-INFER_EVERY = 2
-
-# ---- Distance estimation settings ----
-GAUGE_M = 1.676          # Sri Lanka broad gauge (metres)
-ASSUMED_HFOV_DEG = 60.0  # assumed horizontal field of view of the camera
-BRAKE_DISTANCE_M = 100.0 # threats closer than this -> BRAKE NOW, else CAUTION
-
-print("Loading models...")
-yolo = YOLO(YOLO_MODEL)
-tepnet = Detector(TEPNET_MODEL, None, "pytorch", "cuda")
-YOLO_CLASSES = class_ids(yolo)
-print(f"Models loaded. Detecting: {[yolo.names[i] for i in YOLO_CLASSES]}")
-
-
-def build_corridor_and_rails(egopath, shape):
-    """Returns (corridor_mask, rail_width_by_row) where rail_width_by_row[y] =
-    pixel distance between rails at image row y (0 where unknown)."""
-    h, w = shape[:2]
-    mask = np.zeros((h, w), dtype=np.uint8)
-    width_by_row = np.zeros(h, dtype=np.float32)
-    if egopath is None:
-        return mask, width_by_row
-    try:
-        left, right = egopath
-        left = [(float(x), float(y)) for x, y in left]
-        right = [(float(x), float(y)) for x, y in right]
-        n = min(len(left), len(right))
-        if n < 2:
-            return mask, width_by_row
-
-        exp_left, exp_right = [], []
-        for i in range(n):
-            lx, ly = left[i]
-            rx, ry = right[i]
-            cx = (lx + rx) / 2.0
-            half_w = max(abs(rx - lx) / 2.0, 2.0)
-            y = (ly + ry) / 2.0
-            e = half_w * EXPAND_FACTOR
-            exp_left.append((int(cx - e), int(y)))
-            exp_right.append((int(cx + e), int(y)))
-            yi = int(np.clip(y, 0, h - 1))
-            width_by_row[yi] = max(width_by_row[yi], 2.0 * half_w)
-
-        # fill gaps in width_by_row by interpolation between known rows
-        known = np.where(width_by_row > 0)[0]
-        if len(known) >= 2:
-            all_rows = np.arange(h)
-            width_by_row = np.interp(all_rows, known, width_by_row[known],
-                                     left=0, right=0).astype(np.float32)
-
-        polygon = np.array(exp_left + exp_right[::-1], dtype=np.int32)
-        polygon[:, 0] = np.clip(polygon[:, 0], 0, w - 1)
-        polygon[:, 1] = np.clip(polygon[:, 1], 0, h - 1)
-        cv2.fillPoly(mask, [polygon], 255)
-    except Exception:
-        pass
-    return mask, width_by_row
-
-
-def estimate_distance_m(row_y, width_by_row, focal_px):
-    """Distance from camera to an object standing at image row row_y."""
-    wpx = width_by_row[int(row_y)] if 0 <= int(row_y) < len(width_by_row) else 0
-    if wpx <= 1:
-        return None
-    return (focal_px * GAUGE_M) / wpx
+VIDEO_IN = os.path.join(REPO_ROOT, "data", "videos", "processed", "test2min.mp4")
+VIDEO_OUT = os.path.join(REPO_ROOT, "outputs", "videos", "pipeline_2min.mp4")
 
 
 def main():
-    ap = argparse.ArgumentParser(description="RailGuard fusion: annotate a video")
+    ap = argparse.ArgumentParser(description="RailGuard: annotate a recorded video")
     ap.add_argument("--input", default=VIDEO_IN, help="input video path")
     ap.add_argument("--output", default=VIDEO_OUT, help="output video path")
+    ap.add_argument("--calib", help="calibration .npz from camera/calibration/calibrate.py")
+    ap.add_argument("--segment-every", type=int, default=1, help="run TEP-Net every Nth frame")
+    ap.add_argument("--max-frames", type=int, help="stop after this many frames")
     args = ap.parse_args()
 
     cap = cv2.VideoCapture(args.input)
     if not cap.isOpened():
-        print(f"ERROR: cannot open {args.input}")
-        return
-
-    fps = cap.get(cv2.CAP_PROP_FPS)
+        raise SystemExit(f"ERROR: cannot open {args.input}")
+    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
     w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    if args.max_frames:
+        total = min(total, args.max_frames)
 
-    focal_px = (w / 2.0) / math.tan(math.radians(ASSUMED_HFOV_DEG / 2.0))
-    print(f"Assumed focal length: {focal_px:.0f} px "
-          f"(HFOV {ASSUMED_HFOV_DEG} deg, frame width {w})")
+    opts = dict(segment_every=args.segment_every)
+    config = PipelineConfig.from_calibration(args.calib, **opts) if args.calib else PipelineConfig(**opts)
+    print("Loading models...")
+    pipeline = RailGuardPipeline(config)
+    print(f"Detecting: {[pipeline.model.names[i] for i in pipeline.keep_ids]}")
+    print(f"Focal length: {config.focal_px(w):.0f} px at {w}x{h}"
+          f"{f' (from {args.calib})' if args.calib else ''}")
 
     os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
     out = cv2.VideoWriter(args.output, cv2.VideoWriter_fourcc(*"mp4v"), fps, (w, h))
 
-    corridor = np.zeros((h, w), dtype=np.uint8)
-    width_by_row = np.zeros(h, dtype=np.float32)
-    boxes_cache = []
-    frame_idx = 0
-    class_counts = Counter()  # detections per class, over inference frames
-
-    while True:
-        ret, frame = cap.read()
-        if not ret:
+    class_counts, alert_counts = Counter(), Counter()
+    n, t0 = 0, time.time()
+    while n < total:
+        ok, frame = cap.read()
+        if not ok:
             break
-        frame_idx += 1
-
-        if frame_idx % INFER_EVERY == 1 or INFER_EVERY == 1:
-            pil_img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-            egopath = tepnet.detect(pil_img)
-            corridor, width_by_row = build_corridor_and_rails(egopath, frame.shape)
-
-            results = yolo.predict(frame, conf=CONF, imgsz=1280,
-                                   classes=YOLO_CLASSES, device=0, verbose=False)
-            boxes_cache = []
-            for box in results[0].boxes:
-                x1, y1, x2, y2 = map(int, box.xyxy[0])
-                boxes_cache.append((x1, y1, x2, y2, yolo.names[int(box.cls[0])]))
-            class_counts.update(b[4] for b in boxes_cache)
-
-        overlay = frame.copy()
-        overlay[corridor > 0] = (0, 180, 0)
-        frame = cv2.addWeighted(overlay, 0.25, frame, 0.75, 0)
-
-        worst = None  # closest threat distance this frame
-        for (x1, y1, x2, y2, cls_name) in boxes_cache:
-            gx = np.clip((x1 + x2) // 2, 0, w - 1)
-            gy = np.clip(y2, 0, h - 1)
-            on_track = corridor[gy, gx] > 0
-
-            if on_track:
-                d = estimate_distance_m(gy, width_by_row, focal_px)
-                d_txt = f"~{d:.0f}m" if d else "?m"
-                if d is not None and (worst is None or d < worst):
-                    worst = d
-                color = (0, 0, 255)
-                label = f"THREAT: {cls_name} {d_txt}"
-                th = 3
-            else:
-                color, label, th = (160, 160, 160), cls_name, 1
-
-            cv2.rectangle(frame, (x1, y1), (x2, y2), color, th)
-            cv2.putText(frame, label, (x1, y1 - 8),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
-
-        # ---- Tiered alert banner ----
-        if worst is not None:
-            if worst <= BRAKE_DISTANCE_M:
-                cv2.putText(frame, f"!! BRAKE NOW !! ({worst:.0f}m)", (30, 60),
-                            cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 0, 255), 4)
-            else:
-                cv2.putText(frame, f"CAUTION ({worst:.0f}m)", (30, 60),
-                            cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 165, 255), 4)
-
+        res = pipeline.process_frame(frame)
+        class_counts.update(d.cls_name for d in res.detections)
+        alert_counts[res.alert] += 1
+        draw(frame, res, calibrated=args.calib is not None, persist=config.persist_frames)
         out.write(frame)
-        if frame_idx % 300 == 0:
-            print(f"Processed {frame_idx}/{total} ({100*frame_idx/total:.1f}%)")
+        n += 1
+        if n % 300 == 0:
+            print(f"Processed {n}/{total} ({100 * n / total:.0f}%), "
+                  f"{n / (time.time() - t0):.1f} FPS")
 
     cap.release()
     out.release()
-    print(f"Done! Output: {args.output}")
+    print(f"Done: {n} frames in {time.time() - t0:.0f} s -> {args.output}")
     print(f"Detections by class: {dict(class_counts)}")
+    print(f"Frames by alert: { {k or 'none': v for k, v in alert_counts.items()} }")
 
 
 if __name__ == "__main__":

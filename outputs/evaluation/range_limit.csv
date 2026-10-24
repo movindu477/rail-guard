@@ -1,0 +1,16 @@
+metric,min,median,p95,max
+max_range_m,35.9,61.5,92.2,138.3
+rail_width_px,20.0,45.0,52.05,77.0
+top_row,368.0,427.0,441.0,486.0
+
+frames,3600
+frames_with_track,3600
+frames_width_at_floor,0
+fx_px,1650.6
+fx_source,assumed 60 deg HFOV
+frame_size,1906x928
+
+distance_m,rail_width_px_needed
+300,9.22
+400,6.92
+500,5.53

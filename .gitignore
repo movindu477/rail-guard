@@ -2,7 +2,20 @@ venv/
 data/
 runs/
 outputs/training/
-outputs/evaluation/
+outputs/evaluation/*
+!outputs/evaluation/range_limit.csv
+!outputs/evaluation/baseline_metrics.csv
+!outputs/evaluation/trained_metrics.csv
+!outputs/evaluation/trained_last_metrics.csv
+!outputs/evaluation/coco_metrics.csv
+!outputs/evaluation/manual_coco.csv
+!outputs/evaluation/manual_railguard_best.csv
+!outputs/evaluation/manual_epoch1.csv
+!outputs/evaluation/manual_epoch26.csv
+!outputs/evaluation/railway_val_coco.csv
+!outputs/evaluation/railway_val_epoch1.csv
+!outputs/evaluation/railway_val_epoch26.csv
+!outputs/evaluation/railway_val_yolov8m.csv
 outputs/videos/
 build/
 *.mp4
@@ -16,3 +29,4 @@ ffmpeg.exe
 __pycache__/
 data/dataset/
 
+*.egg-info/

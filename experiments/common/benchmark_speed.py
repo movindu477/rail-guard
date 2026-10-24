@@ -1,14 +1,13 @@
 """Speed benchmark across resolutions and devices."""
-import os, sys, time
+import os, time
 import cv2
 import numpy as np
 from PIL import Image
 
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.path.insert(0, ROOT)
-
 from ultralytics import YOLO
 from railguard.segmentation.tepnet import load_tepnet
+
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 VIDEO = os.path.join(ROOT, "data", "videos", "processed", "test2min.mp4")
 MODEL = os.path.join(ROOT, "models", "railguard_best.pt")

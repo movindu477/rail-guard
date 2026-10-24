@@ -1,0 +1,4 @@
+dataset,class,instances,mAP50,mAP50-95,recall@0.25,precision@0.25
+synthetic animals (test),cow,60,0.846,0.738,0.833,0.806
+synthetic animals (test),elephant,60,0.845,0.811,0.8,1.0
+wildlife elephants (test),elephant,186,0.818,0.543,0.774,0.766

@@ -25,17 +25,16 @@ import math
 import os
 import random
 import shutil
-import sys
 
 import cv2
 import numpy as np
 from PIL import Image
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, ROOT)
-from railguard.core.geometry import (  # noqa: E402
+from railguard.core.geometry import (
     GAUGE_M, focal_from_fov, rail_width_by_row, track_centre_by_row)
-from railguard.segmentation.tepnet import load_tepnet  # noqa: E402
+from railguard.segmentation.tepnet import load_tepnet
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 DATASET = os.path.join(ROOT, "data", "dataset")
 FRAMES_IMG = os.path.join(DATASET, "images")

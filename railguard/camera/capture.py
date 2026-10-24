@@ -1,3 +1,6 @@
+"""Opening the ELP USB camera: Media Foundation + MJPEG, the only path that
+reaches 4K at ~30 FPS on Windows (see observations.md)."""
+
 import cv2
 
 def open_camera(index=1, width=1920, height=1080, backend=cv2.CAP_MSMF):
