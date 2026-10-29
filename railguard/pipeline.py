@@ -61,7 +61,9 @@ class RailGuardPipeline:
             x1, y1, x2, y2 = map(int, box.xyxy[0])
             gx, gy = foot_point(x1, y1, x2, y2)
             on_track = in_corridor(corridor, gx, gy)
-            distance = estimate_distance_m(gy, width_by_row, fx) if on_track else None
+            # ground distance along the track (pitch-corrected), which is what braking distance is measured in
+            distance = (estimate_distance_m(gy, width_by_row, fx, cfg.camera_pitch_deg, cfg.camera_height_m)
+                        if on_track else None)
             found.append(((x1, y1, x2, y2), self.model.names[int(box.cls[0])],
                           float(box.conf[0]), on_track, distance))
 

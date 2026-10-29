@@ -12,6 +12,15 @@ from .detection.classes import ALLOWED_NAMES
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
+# Camera pitch that gave TEP-Net the longest accurate range in the Blender
+# pitch sweep (simulation/validate_tepnet.py --sweep). Negative = pointing down.
+# Used by PipelineConfig.for_mounting(); the plain default stays at 0 because
+# recorded footage was filmed at an unknown angle.
+RECOMMENDED_MOUNTING = {
+    "wide": {"pitch_deg": -3.0, "sim_valid_range_m": (5, 73)},     # 5 mm, median error +0.6%
+    "tele": {"pitch_deg": -0.75, "sim_valid_range_m": (35, 610)},  # 50 mm, 0.5-1 deg down: 42-490 / 35-610 m
+}
+
 
 @dataclass
 class PipelineConfig:
@@ -41,6 +50,8 @@ class PipelineConfig:
     calib_width: Optional[int] = None  # image width the calibration was done at
     fx: Optional[float] = None         # manual focal length in px, used when there is no calibration
     assumed_hfov_deg: float = 60.0     # last resort: fx derived from an assumed field of view
+    camera_pitch_deg: float = 0.0      # camera tilt, negative = pointing down; 0 = no correction
+    camera_height_m: float = 1.805     # camera height above the rail tops (pitch correction only)
 
     # ---- Alerts ----
     persist_frames: int = 3   # an on-track object must be seen in this many processed frames to alert
@@ -49,6 +60,12 @@ class PipelineConfig:
     brake_distance_m: Optional[float] = None   # None = braking distance for speed_kmh
 
     _warned_uncalibrated: bool = field(default=False, init=False, repr=False, compare=False)
+
+    @classmethod
+    def for_mounting(cls, lens, **kwargs):
+        """Config for a recommended camera mounting: RECOMMENDED_MOUNTING[lens]
+        sets the pitch (see the README, "Camera mounting")."""
+        return cls(camera_pitch_deg=RECOMMENDED_MOUNTING[lens]["pitch_deg"], **kwargs)
 
     @classmethod
     def from_calibration(cls, path, **kwargs):

@@ -1,0 +1,8 @@
+focal_mm=5.0
+sensor_mm=6.170000076293945
+res=1920x1080
+fx_px=1555.915702
+gauge_m=1.676
+cam_height_m=2.0
+rail_top_z=0.195
+pitch_deg=3.0
