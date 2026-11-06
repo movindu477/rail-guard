@@ -17,8 +17,8 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # Used by PipelineConfig.for_mounting(); the plain default stays at 0 because
 # recorded footage was filmed at an unknown angle.
 RECOMMENDED_MOUNTING = {
-    "wide": {"pitch_deg": -3.0, "sim_valid_range_m": (5, 73)},     # 5 mm, median error +0.6%
-    "tele": {"pitch_deg": -0.75, "sim_valid_range_m": (35, 610)},  # 50 mm, 0.5-1 deg down: 42-490 / 35-610 m
+    "wide": {"pitch_deg": -3.0, "sim_valid_range_m": (5, 73)},    # 5 mm; worst over-read +7.2%, covered by distance_margin
+    "tele": {"pitch_deg": -1.0, "sim_valid_range_m": (35, 610)},  # 50 mm; straight or gently curved track only
 }
 
 
@@ -58,6 +58,10 @@ class PipelineConfig:
     track_max_age: int = 5    # frames an on-track object may go unseen before its track is dropped
     speed_kmh: float = 60.0                    # line speed; fixed until a live speed input exists
     brake_distance_m: Optional[float] = None   # None = braking distance for speed_kmh
+    # Safety margin on distance before the braking comparison: an object is treated
+    # as (1 - margin) x its measured distance, so a detector that over-reads by up to
+    # the margin still alerts in time. Displayed distances are not changed.
+    distance_margin: float = 0.10
 
     _warned_uncalibrated: bool = field(default=False, init=False, repr=False, compare=False)
 

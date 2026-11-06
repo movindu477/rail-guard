@@ -31,6 +31,7 @@ SETS = {
 }
 NAMES = ["person", "car", "motorcycle", "bus", "truck", "cow", "elephant"]
 THRESH = 0.25   # PipelineConfig.conf_threshold
+MIN_TO_RANK = 20   # fewer boxes than this in a class or band: report it, don't rank models on it
 BANDS = [(0, 20, "<20 px"), (20, 50, "20-50 px"), (50, 100, "50-100 px"), (100, 1e9, ">100 px")]
 
 
@@ -112,9 +113,11 @@ def main():
             continue
         print(f"   {'metric':24s}{'subset':12s}{'boxes':>7s}{'recall':>9s}")
         for metric, subset, n, rec in rows:
-            print(f"   {metric:24s}{subset:12s}{n:>7d}{str(rec):>9s}")
+            few = n < MIN_TO_RANK
+            print(f"   {metric:24s}{subset:12s}{n:>7d}{str(rec):>9s}"
+                  + (f"   too few boxes to rank models (< {MIN_TO_RANK})" if few and n else ""))
             out_rows.append({"set": name, "metric": metric, "subset": subset,
-                             "boxes": n, "recall": rec})
+                             "boxes": n, "recall": rec, "too_few_to_rank": int(few)})
 
     if out_rows:
         os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)

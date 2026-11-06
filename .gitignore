@@ -16,6 +16,8 @@ outputs/evaluation/*
 !outputs/evaluation/railway_val_epoch1.csv
 !outputs/evaluation/railway_val_epoch26.csv
 !outputs/evaluation/railway_val_yolov8m.csv
+!outputs/evaluation/e1_corridor.csv
+!outputs/evaluation/e2_distance.csv
 outputs/videos/
 build/
 *.mp4
@@ -30,3 +32,9 @@ __pycache__/
 data/dataset/
 
 *.egg-info/
+
+# Blender renders are regenerated exactly by build_scene.py --sweep; the truth
+# and camera files are the evidence and stay tracked.
+simulation/renders/*.png
+!simulation/renders/*_truth.csv
+!simulation/renders/*_camera.txt

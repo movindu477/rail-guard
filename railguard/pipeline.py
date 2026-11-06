@@ -77,9 +77,12 @@ class RailGuardPipeline:
                                         on_track=on_track, distance_m=distance,
                                         track_hits=n, confirmed=n >= cfg.persist_frames))
 
-        # 7. Alert from confirmed on-track objects only. Fail-safe kept: a
-        # confirmed threat at unknown distance is still BRAKE NOW.
-        alert = alert_level([d.distance_m for d in detections if d.confirmed],
+        # 7. Alert from confirmed on-track objects only, each treated as
+        # distance_margin closer than measured. Fail-safe kept: a confirmed
+        # threat at unknown distance is still BRAKE NOW.
+        keep = 1.0 - cfg.distance_margin
+        alert = alert_level([None if d.distance_m is None else d.distance_m * keep
+                             for d in detections if d.confirmed],
                             cfg.braking_distance())
 
         self._frame_idx += 1

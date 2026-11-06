@@ -1,0 +1,18 @@
+part,model,item,derived,old
+clip,yolov8s.pt,frames,3600,3600
+clip,yolov8s.pt,detections,10460,10460
+clip,yolov8s.pt,on_track_detections,54,168
+clip,yolov8s.pt,frames_with_on_track,48,139
+clip,yolov8s.pt,alert_frames,35,90
+curves,,curve_tele_r1000,"78/78 rows, reaches 94.0 m",
+curves,,curve_tele_r150,"0/0 rows, reaches  m",
+curves,,curve_tele_r300,"0/0 rows, reaches  m",
+curves,,curve_tele_r500,"0/0 rows, reaches  m",
+curves,,curve_tele_straight,"242/242 rows, reaches 490.0 m",
+curves,,curve_wide_r1000,"139/139 rows, reaches 39.0 m",
+curves,,curve_wide_r150,"110/110 rows, reaches 31.75 m",
+curves,,curve_wide_r300,"139/139 rows, reaches 39.0 m",
+curves,,curve_wide_r300_nopoles,"109/109 rows, reaches 31.5 m",
+curves,,curve_wide_r500,"139/139 rows, reaches 39.0 m",
+curves,,curve_wide_r500_nopoles,"109/109 rows, reaches 31.5 m",
+curves,,curve_wide_straight,"206/206 rows, reaches 73.0 m",

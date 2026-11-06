@@ -53,6 +53,7 @@ RENDERS = os.path.join(REPO_ROOT, "simulation", "renders")
 EVAL_DIR = os.path.join(REPO_ROOT, "outputs", "evaluation")
 FIG_DIR = os.path.join(REPO_ROOT, "outputs", "figures")
 VALID_PCT = 10.0
+DEFAULT_CAM_HEIGHT_M = 1.805
 BAD_RUN = 5
 REPORT_AT = (6, 10, 15, 20, 30, 40, 50, 60, 75, 100, 150, 200, 300, 400, 500, 600)
 
@@ -62,13 +63,21 @@ def read_camera(view):
         kv = dict(line.strip().split("=", 1) for line in f if "=" in line)
     if abs(float(kv["gauge_m"]) - GAUGE_M) > 1e-6:
         raise SystemExit(f"{view}: render gauge {kv['gauge_m']} differs from GAUGE_M {GAUGE_M}")
-    height = float(kv["cam_height_m"]) - float(kv["rail_top_z"])    # camera above the rail tops
+    if "cam_height_m" in kv and "rail_top_z" in kv:
+        height = float(kv["cam_height_m"]) - float(kv["rail_top_z"])    # camera above the rail tops
+    else:   # curve renders omit it; same rig as the pitch renders (2.0 m camera, 0.195 m rail tops)
+        height = DEFAULT_CAM_HEIGHT_M
     return float(kv["fx_px"]), float(kv.get("pitch_deg", 0.0)), height
 
 
+TRUTH_ALIASES = {"true_alongtrack_m": "true_distance_m", "rail_sep_px": "true_rail_sep_px"}
+
+
 def read_truth(view):
+    """Truth rows; curve renders name the columns differently (true_alongtrack_m,
+    rail_sep_px) and the distance there is measured along the curved track."""
     with open(os.path.join(RENDERS, f"{view}_truth.csv")) as f:
-        return [{k: float(v) for k, v in r.items()} for r in csv.DictReader(f)]
+        return [{TRUTH_ALIASES.get(k, k): float(v) for k, v in r.items()} for r in csv.DictReader(f)]
 
 
 def valid_stretch(covered):
@@ -100,6 +109,20 @@ def compare(view, egopath, h, tag=None, image=None, verbose=True):
     name = tag or view
     fx, pitch, cam_h = read_camera(view)
     truth = read_truth(view)
+    if not truth:
+        # the track is never fully in frame (e.g. telephoto on a tight curve): nothing
+        # can be ranged; report whether TEP-Net returned rails anyway
+        n_pts = sum(len(r) for r in egopath) if egopath is not None else 0
+        found = "returned rails anyway (" + str(n_pts) + " points): these are not the track" \
+            if n_pts else "returned no rails (correct)"
+        if verbose:
+            print(f"\n== {name}: pitch {pitch:+g} deg - track never fully in frame; TEP-Net {found}")
+        return {"view": name, "pitch_deg": pitch, "fx_px": round(fx, 1), "track_visible_from_m": "none",
+                "track_rows_px": "", "rows_covered": "0/0", "stop_row_px": "", "stop_row_pct": "",
+                "reach_m": "", "valid_from_m": "none", "valid_reach_m": "none", "nearest_m": "",
+                "median_detection_error_pct": "", "median_total_error_pct": "", "worst_total_error_pct": "",
+                "median_corrected_error_pct": "", "worst_corrected_error_pct": "",
+                "note": f"track never fully in frame; TEP-Net {found}"}
     rows = []
     width = rail_width_by_row(egopath, h) if egopath is not None else np.zeros(h)
     centre = track_centre_by_row(egopath, h) if egopath is not None else np.zeros(h)
@@ -110,6 +133,10 @@ def compare(view, egopath, h, tag=None, image=None, verbose=True):
              "true_sep_px": t["true_rail_sep_px"], "pred_sep_px": "", "pred_distance_m": "",
              "detection_error_pct": "", "total_error_m": "", "total_error_pct": "",
              "corrected_distance_m": "", "corrected_error_pct": "", "centre_error_px": ""}
+        # perfect rails through the pipeline's formula + pitch correction: what the
+        # geometry alone (e.g. a curve) does, with no detection error at all
+        r["geometry_error_pct"] = round(100 * (depth_to_ground(fx * GAUGE_M / t["true_rail_sep_px"], pitch, cam_h)
+                                               / t["true_distance_m"] - 1), 2)
         if sep > 0:
             d = fx * GAUGE_M / sep
             d_formula = fx * GAUGE_M / t["true_rail_sep_px"]      # perfect rails, same formula
@@ -147,7 +174,7 @@ def compare(view, egopath, h, tag=None, image=None, verbose=True):
                "rows_covered": f"{len(covered)}/{len(rows)}",
                "stop_row_px": "", "stop_row_pct": "", "reach_m": "", "valid_from_m": "", "valid_reach_m": "", "nearest_m": "",
                "median_detection_error_pct": "", "median_total_error_pct": "", "worst_total_error_pct": "",
-               "median_corrected_error_pct": "", "worst_corrected_error_pct": ""}
+               "median_corrected_error_pct": "", "worst_corrected_error_pct": "", "note": ""}
     if covered:
         top = min(covered, key=lambda r: r["row_y_px"])
         det = np.array([r["detection_error_pct"] for r in covered])
@@ -172,7 +199,9 @@ def compare(view, egopath, h, tag=None, image=None, verbose=True):
         print(f"   stops at row {summary['stop_row_px']} ({summary['stop_row_pct']}% of height) "
               f"-> reach {summary['reach_m']:g} m, valid range (|error| <= {VALID_PCT:g}%) "
               f"{summary['valid_from_m']}-{summary['valid_reach_m']} m; track visible from {summary['track_visible_from_m']:g} m")
-        print(f"   {'true m':>7s} {'pred m':>8s} {'detect %':>9s} {'total %':>8s} {'true sep':>9s} {'pred sep':>9s}")
+        # geometry %: perfect rails, pitch-corrected; final %: what the pipeline reports (pitch-corrected)
+        print(f"   {'true m':>7s} {'reported m':>11s} {'geometry %':>11s} {'detect %':>9s} {'final %':>8s}"
+              f" {'true sep':>9s} {'pred sep':>9s} {'centre off':>11s}")
         shown = set()
         for d in REPORT_AT:
             r = min(rows, key=lambda r: abs(r["true_distance_m"] - d))
@@ -180,10 +209,12 @@ def compare(view, egopath, h, tag=None, image=None, verbose=True):
                 continue
             shown.add(r["true_distance_m"])
             if r["pred_sep_px"] == "":
-                print(f"   {r['true_distance_m']:7g} {'-':>8s} {'-':>9s} {'-':>8s} {r['true_sep_px']:9.1f} {'none':>9s}")
+                print(f"   {r['true_distance_m']:7g} {'-':>11s} {r['geometry_error_pct']:+11.1f} {'-':>9s} {'-':>8s}"
+                      f" {r['true_sep_px']:9.1f} {'none':>9s} {'-':>11s}")
             else:
-                print(f"   {r['true_distance_m']:7g} {r['pred_distance_m']:8.1f} {r['detection_error_pct']:+9.1f} "
-                      f"{r['total_error_pct']:+8.1f} {r['true_sep_px']:9.1f} {r['pred_sep_px']:9.1f}")
+                print(f"   {r['true_distance_m']:7g} {r['corrected_distance_m']:11.1f} {r['geometry_error_pct']:+11.1f}"
+                      f" {r['detection_error_pct']:+9.1f} {r['corrected_error_pct']:+8.1f}"
+                      f" {r['true_sep_px']:9.1f} {r['pred_sep_px']:9.1f} {r['centre_error_px']:+10.1f}px")
         print(f"   median error: detection {summary['median_detection_error_pct']:+}%, "
               f"total {summary['median_total_error_pct']:+}% (worst {summary['worst_total_error_pct']:+}%), "
               f"pitch-corrected {summary['median_corrected_error_pct']:+}% (worst {summary['worst_corrected_error_pct']:+}%)")
