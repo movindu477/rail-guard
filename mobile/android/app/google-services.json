@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "808002289908",
+    "project_id": "railguard-alerts",
+    "storage_bucket": "railguard-alerts.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:808002289908:android:88b0410d83593161901ea1",
+        "android_client_info": {
+          "package_name": "com.example.railguard_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAvagG6r2nURYanDdPAjqxcIOCGErT9Q54"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

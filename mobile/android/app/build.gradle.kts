@@ -1,5 +1,8 @@
 plugins {
     id("com.android.application")
+    // START: FlutterFire Configuration
+    id("com.google.gms.google-services")
+    // END: FlutterFire Configuration
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
@@ -25,10 +28,6 @@ android {
         versionName = flutter.versionName
     }
 
-    androidResources {
-        noCompress += "tflite"
-    }
-
     buildTypes {
         release {
             // TODO: Add your own signing config for the release build.
@@ -46,13 +45,4 @@ kotlin {
 
 flutter {
     source = "../.."
-}
-
-configurations.all {
-    exclude(group = "org.tensorflow", module = "tensorflow-lite-api")
-    exclude(group = "org.tensorflow", module = "tensorflow-lite-gpu")
-    resolutionStrategy {
-        force("androidx.core:core:1.12.0")
-        force("androidx.core:core-ktx:1.12.0")
-    }
 }

@@ -10,7 +10,8 @@ Run it after the 5-frame dry run and after every export. It reports:
   - malformed lines: not 5 fields, class id outside 0-6, coordinates outside 0-1,
     zero-size boxes
   - boxes under the 12 px minimum height (allowed for side-on vehicles: check them)
-  - boxes per class, and how many label files are empty
+  - boxes per class (all 7, zeros included), flagging classes under 20 boxes,
+    and how many label files are empty
 Exits non-zero if anything is malformed, so a broken export is caught at once.
 """
 
@@ -27,6 +28,7 @@ SETS = {"day": os.path.join(ROOT, "data", "dataset", "testset_manual"),
         "night": os.path.join(ROOT, "data", "dataset", "testset_night")}
 NAMES = ["person", "car", "motorcycle", "bus", "truck", "cow", "elephant"]
 MIN_PX = 12
+MIN_TO_RANK = 20   # same as training/eval_manual.py
 
 
 def check(folder):
@@ -90,9 +92,13 @@ def main():
             print(f"   ... and {len(bad) - 15} more malformed lines")
         for s in small[:10]:
             print(f"   under {MIN_PX} px (check it follows the rules): {s}")
-        if counts:
-            print("   boxes per class: " + ", ".join(f"{NAMES[c]} {counts[c]}" for c in sorted(counts))
+        if labels:
+            print("   boxes per class: " + ", ".join(f"{NAMES[c]} {counts[c]}" for c in range(len(NAMES)))
                   + f"   (total {sum(counts.values())})")
+            short = [NAMES[c] for c in range(len(NAMES)) if counts[c] < MIN_TO_RANK]
+            if short:
+                print(f"   under {MIN_TO_RANK} boxes so far (eval_manual.py won't rank models on these): "
+                      + ", ".join(short))
         failed |= bool(bad or orphans)
         if not missing and not bad and not orphans:
             print("   OK: every image has a valid label file")

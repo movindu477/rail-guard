@@ -34,12 +34,11 @@ dependencies:
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
-  camera: ^0.11.0
-  tflite_flutter: ^0.11.0
-  image: ^4.9.1
   audioplayers: ^6.1.0
   geolocator: ^13.0.1
-  permission_handler: ^11.3.1
+  firebase_core: ^5.1.0
+  cloud_firestore: ^7.1.0
+  google_maps_flutter: ^2.18.1
 
 dev_dependencies:
   flutter_test:
@@ -64,7 +63,9 @@ flutter:
   uses-material-design: true
 
   assets:
-    - assets/
+    - assets/map_style.json      # dark map, roads and shops hidden
+    - assets/railway_line.json   # Sri Lanka running lines from OpenStreetMap (tool/railway_from_osm.py)
+
 
   # To add assets to your application, add an assets section, like this:
   # assets:
