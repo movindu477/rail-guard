@@ -140,4 +140,74 @@ void main() {
       expect(check(90, [east2])!.message, 'MANUAL — 2.0 km ahead');
     });
   });
+
+  group('alertLevel', () {
+    test('near the line: info 3 km, caution 1 km, stop 400 m', () {
+      expect(alertLevel(3001, blocked: false), AlertLevel.none);
+      expect(alertLevel(3000, blocked: false), AlertLevel.info);
+      expect(alertLevel(1001, blocked: false), AlertLevel.info);
+      expect(alertLevel(1000, blocked: false), AlertLevel.caution);
+      expect(alertLevel(401, blocked: false), AlertLevel.caution);
+      expect(alertLevel(400, blocked: false), AlertLevel.stop);
+    });
+    test('line blocked: straight to stop at 1 km', () {
+      expect(alertLevel(1500, blocked: true), AlertLevel.info);
+      expect(alertLevel(1000, blocked: true), AlertLevel.stop);
+    });
+    test('unknown severity counts as blocked (fail-safe)', () {
+      const h = Hazard(id: 'x', latitude: 0, longitude: 0, objectType: 'animal');
+      expect(h.blocked, isTrue);
+      const near = Hazard(id: 'y', latitude: 0, longitude: 0, objectType: 'animal', severity: 'near');
+      expect(near.blocked, isFalse);
+    });
+  });
+
+  group('hazardsAhead', () {
+    final now = DateTime(2026, 11, 9, 12);
+    test('most urgent first: a blocked line at 900 m beats a near one at 500 m', () {
+      final near500 = Hazard(id: 'near', latitude: fortLat, longitude: fortLon + 0.0045,
+          objectType: 'animal', severity: 'near', time: now);
+      final blocked900 = Hazard(id: 'blocked', latitude: fortLat, longitude: fortLon + 0.0081,
+          objectType: 'animal', severity: 'blocked', time: now);
+      final all = hazardsAhead(lat: fortLat, lon: fortLon, headingDeg: 90,
+          hazards: [near500, blocked900], now: now);
+      expect(all.map((w) => w.hazard.id), ['blocked', 'near']);
+      expect(all.map((w) => w.level), [AlertLevel.stop, AlertLevel.caution]);
+    });
+  });
+
+  group('AlertTracker', () {
+    HazardWarning at(String id, double d, {String severity = 'near'}) => HazardWarning(
+        Hazard(id: id, latitude: 0, longitude: 0, objectType: 'animal', severity: severity),
+        d, true);
+
+    test('each level fires once, on the way in', () {
+      final t = AlertTracker();
+      expect(t.raised([at('a', 2500)]).map((w) => w.level), [AlertLevel.info]);
+      expect(t.raised([at('a', 2000)]), isEmpty);          // still info: silent
+      expect(t.raised([at('a', 900)]).map((w) => w.level), [AlertLevel.caution]);
+      expect(t.raised([at('a', 850)]), isEmpty);
+      expect(t.raised([at('a', 390)]).map((w) => w.level), [AlertLevel.stop]);
+      expect(t.raised([at('a', 100)]), isEmpty);
+    });
+    test('GPS jitter across a boundary does not repeat the sound', () {
+      final t = AlertTracker();
+      t.raised([at('a', 990)]);
+      expect(t.raised([at('a', 1010)]), isEmpty);
+      expect(t.raised([at('a', 995)]), isEmpty);
+    });
+    test('blocked jumps from info straight to stop', () {
+      final t = AlertTracker();
+      t.raised([at('b', 2000, severity: 'blocked')]);
+      expect(t.raised([at('b', 950, severity: 'blocked')]).map((w) => w.level),
+          [AlertLevel.stop]);
+    });
+    test('hazards are tracked separately; cleared ones are forgotten', () {
+      final t = AlertTracker();
+      expect(t.raised([at('a', 900), at('b', 900)]).length, 2);
+      t.keepOnly({'b'});
+      expect(t.announced('a'), AlertLevel.none);
+      expect(t.announced('b'), AlertLevel.caution);
+    });
+  });
 }

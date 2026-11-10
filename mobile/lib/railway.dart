@@ -11,9 +11,6 @@ Future<List<List<LatLng>>> loadRailway() async {
   final data = jsonDecode(await rootBundle.loadString('assets/railway_line.json'));
   return [
     for (final line in data['lines'] as List)
-      [
-        for (final p in line as List)
-          LatLng((p[0] as num).toDouble(), (p[1] as num).toDouble()),
-      ],
+      [for (final p in line as List) LatLng((p[0] as num).toDouble(), (p[1] as num).toDouble())],
   ];
 }

@@ -12,7 +12,10 @@ Future<BitmapDescriptor> _draw(Size size, double dpr, void Function(Canvas) pain
   final rec = ui.PictureRecorder();
   final canvas = Canvas(rec)..scale(dpr);
   paint(canvas);
-  final img = await rec.endRecording().toImage((size.width * dpr).ceil(), (size.height * dpr).ceil());
+  final img = await rec.endRecording().toImage(
+    (size.width * dpr).ceil(),
+    (size.height * dpr).ceil(),
+  );
   final png = await img.toByteData(format: ui.ImageByteFormat.png);
   return BitmapDescriptor.bytes(png!.buffer.asUint8List(), imagePixelRatio: dpr);
 }
@@ -22,12 +25,13 @@ Future<BitmapDescriptor> hazardPin(String emoji, Color ring, double dpr) =>
     _draw(const Size(56, 66), dpr, (c) {
       const r = 28.0, centre = Offset(28, 28);
       c.drawPath(
-          Path()
-            ..moveTo(19, 50)
-            ..lineTo(28, 66)
-            ..lineTo(37, 50)
-            ..close(),
-          Paint()..color = ring);
+        Path()
+          ..moveTo(19, 50)
+          ..lineTo(28, 66)
+          ..lineTo(37, 50)
+          ..close(),
+        Paint()..color = ring,
+      );
       c.drawCircle(centre, r, Paint()..color = ring);
       c.drawCircle(centre, r - 4, Paint()..color = RG.surface);
       final tp = TextPainter(
@@ -39,8 +43,8 @@ Future<BitmapDescriptor> hazardPin(String emoji, Color ring, double dpr) =>
 
 /// Train position: green dot, white ring, soft glow. 36 x 36; anchor (0.5, 0.5).
 Future<BitmapDescriptor> trainDot(double dpr) => _draw(const Size(36, 36), dpr, (c) {
-      const centre = Offset(18, 18);
-      c.drawCircle(centre, 18, Paint()..color = RG.accent.withValues(alpha: 0.30));
-      c.drawCircle(centre, 10, Paint()..color = Colors.white);
-      c.drawCircle(centre, 7, Paint()..color = RG.accent);
-    });
+  const centre = Offset(18, 18);
+  c.drawCircle(centre, 18, Paint()..color = RG.accent.withValues(alpha: 0.30));
+  c.drawCircle(centre, 10, Paint()..color = Colors.white);
+  c.drawCircle(centre, 7, Paint()..color = RG.accent);
+});

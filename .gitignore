@@ -38,3 +38,8 @@ data/dataset/
 simulation/renders/*.png
 !simulation/renders/*_truth.csv
 !simulation/renders/*_camera.txt
+
+# Firebase service-account keys: secret, keep outside the repo (~/.railguard/firebase-key.json)
+*firebase-adminsdk*.json
+firebase-key*.json
+serviceAccount*.json

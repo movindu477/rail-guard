@@ -2,6 +2,7 @@
 
     python demos/live_demo.py
     python demos/live_demo.py --calib camera/calibration/elp_wide.npz --camera 1
+    python demos/live_demo.py --publish             # also send BRAKE NOW hazards to Firestore
 
 Same drawing as demos/offline_video.py; frames come from
 railguard.camera.capture.open_camera(). Without --calib, distances use an
@@ -44,6 +45,10 @@ def main():
     ap.add_argument("--height", type=int, default=1080, help="capture height")
     ap.add_argument("--calib", help="calibration .npz from camera/calibration/calibrate.py")
     ap.add_argument("--segment-every", type=int, default=1, help="run TEP-Net every Nth frame")
+    ap.add_argument("--publish", action="store_true",
+                    help="send BRAKE NOW hazards to Firestore for the driver app (needs the phone app running)")
+    ap.add_argument("--unit", default="unit-01", help="train unit id, same as the phone app's RAILGUARD_UNIT")
+    ap.add_argument("--firebase-key", help="service-account key (default: ~/.railguard/firebase-key.json)")
     args = ap.parse_args()
 
     opts = dict(segment_every=args.segment_every)
@@ -51,6 +56,12 @@ def main():
     print("Loading models...")
     pipeline = RailGuardPipeline(config)
     print(f"Detecting: {[pipeline.model.names[i] for i in pipeline.keep_ids]}")
+
+    publisher = None
+    if args.publish:
+        from railguard.alerts.publisher import HazardPublisher
+        publisher = HazardPublisher(args.unit, key_path=args.firebase_key)
+        print(f"Publishing BRAKE NOW hazards to Firestore as {args.unit}")
 
     cap = open_camera(args.camera, args.width, args.height)
     w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -68,6 +79,8 @@ def main():
                 print("Camera read failed.")
                 break
             res = pipeline.process_frame(frame)
+            if publisher:
+                publisher.on_frame(res)
             draw(frame, res, calibrated=args.calib is not None, persist=config.persist_frames)
 
             now = time.time()
@@ -90,6 +103,8 @@ def main():
     finally:
         cap.release()
         cv2.destroyAllWindows()
+        if publisher:
+            publisher.close()
 
 
 if __name__ == "__main__":

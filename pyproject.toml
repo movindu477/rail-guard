@@ -10,6 +10,9 @@ dependencies = [
     "torchvision",
 ]
 
+[project.optional-dependencies]
+alerts = ["firebase-admin"]   # railguard.alerts.publisher: BRAKE NOW hazards to Firestore
+
 [build-system]
 requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"

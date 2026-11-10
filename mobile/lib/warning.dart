@@ -65,6 +65,13 @@ class Hazard {
   final double longitude;
   final String objectType;
   final DateTime? time; // null = unknown, kept (warn when unsure)
+  /// 'blocked' (train cannot pass) or 'near' (pass with caution). Anything
+  /// else, including missing, is treated as blocked: warn when unsure.
+  final String severity;
+  final String reportedBy; // 'auto' (train camera), 'driver', or '' (unknown)
+  final String? unitId; // train unit that reported it
+  final double? cameraDistanceM; // auto reports: camera's distance to the object
+  final double? confidence; // auto reports: detector confidence
 
   const Hazard({
     required this.id,
@@ -72,7 +79,34 @@ class Hazard {
     required this.longitude,
     required this.objectType,
     this.time,
+    this.severity = '',
+    this.reportedBy = '',
+    this.unitId,
+    this.cameraDistanceM,
+    this.confidence,
   });
+
+  bool get blocked => severity != 'near';
+}
+
+// ---------------------------------------------------------------- tiers
+
+/// Alert tiers for a following train, lowest first.
+///   info     within 3 km: grey banner, no sound
+///   caution  within 1 km: orange, one beep, short vibration
+///   stop     within 400 m, or within 1 km if the line is blocked:
+///            full screen, repeating alarm until acknowledged
+enum AlertLevel { none, info, caution, stop }
+
+const double infoRangeM = warnRangeM; // 3 km
+const double cautionRangeM = 1000;
+const double stopRangeM = 400;
+
+AlertLevel alertLevel(double distanceM, {required bool blocked}) {
+  if (distanceM <= stopRangeM) return AlertLevel.stop;
+  if (distanceM <= cautionRangeM) return blocked ? AlertLevel.stop : AlertLevel.caution;
+  if (distanceM <= infoRangeM) return AlertLevel.info;
+  return AlertLevel.none;
 }
 
 class HazardWarning {
@@ -82,14 +116,42 @@ class HazardWarning {
 
   const HazardWarning(this.hazard, this.distanceM, this.headingKnown);
 
+  AlertLevel get level => alertLevel(distanceM, blocked: hazard.blocked);
+
   /// e.g. "ANIMAL — 1.8 km ahead", or "ANIMAL — 1.8 km (direction unknown)".
-  String get message => '${hazard.objectType.toUpperCase()} — ${formatDistance(distanceM)}'
+  String get message =>
+      '${hazard.objectType.toUpperCase()} — ${formatDistance(distanceM)}'
       '${headingKnown ? ' ahead' : ' (direction unknown)'}';
 }
 
 /// "850 m" below a kilometre, "1.8 km" above.
 String formatDistance(double m) =>
     m >= 1000 ? '${(m / 1000).toStringAsFixed(1)} km' : '${m.round()} m';
+
+/// Every hazard within [warnRangeM], ahead (or heading unknown) and not older
+/// than [hazardMaxAge], most urgent first (highest level, then nearest).
+List<HazardWarning> hazardsAhead({
+  required double lat,
+  required double lon,
+  required double? headingDeg,
+  required Iterable<Hazard> hazards,
+  required DateTime now,
+}) {
+  final out = <HazardWarning>[];
+  for (final h in hazards) {
+    if (h.time != null && now.difference(h.time!) > hazardMaxAge) continue;
+    final d = distanceM(lat, lon, h.latitude, h.longitude);
+    if (d > warnRangeM) continue;
+    if (!isAhead(bearingDeg(lat, lon, h.latitude, h.longitude), headingDeg)) continue;
+    out.add(HazardWarning(h, d, headingDeg != null));
+  }
+  out.sort(
+    (a, b) => a.level != b.level
+        ? b.level.index.compareTo(a.level.index)
+        : a.distanceM.compareTo(b.distanceM),
+  );
+  return out;
+}
 
 /// The nearest hazard that is within [warnRangeM], ahead (or heading
 /// unknown) and not older than [hazardMaxAge]; null if there is none.
@@ -100,13 +162,32 @@ HazardWarning? closestHazardAhead({
   required Iterable<Hazard> hazards,
   required DateTime now,
 }) {
-  HazardWarning? best;
-  for (final h in hazards) {
-    if (h.time != null && now.difference(h.time!) > hazardMaxAge) continue;
-    final d = distanceM(lat, lon, h.latitude, h.longitude);
-    if (d > warnRangeM) continue;
-    if (!isAhead(bearingDeg(lat, lon, h.latitude, h.longitude), headingDeg)) continue;
-    if (best == null || d < best.distanceM) best = HazardWarning(h, d, headingDeg != null);
+  final all = hazardsAhead(lat: lat, lon: lon, headingDeg: headingDeg, hazards: hazards, now: now);
+  if (all.isEmpty) return null;
+  return all.reduce((a, b) => b.distanceM < a.distanceM ? b : a);
+}
+
+/// Fires each level once per hazard: [raised] returns the hazards whose level
+/// went above anything already announced for them. Moving back out and in
+/// again (GPS noise at a boundary) does not repeat the sound.
+class AlertTracker {
+  final Map<String, AlertLevel> _announced = {};
+
+  List<HazardWarning> raised(Iterable<HazardWarning> current) {
+    final out = <HazardWarning>[];
+    for (final w in current) {
+      final before = _announced[w.hazard.id] ?? AlertLevel.none;
+      if (w.level.index > before.index) {
+        _announced[w.hazard.id] = w.level;
+        out.add(w);
+      }
+    }
+    return out;
   }
-  return best;
+
+  AlertLevel announced(String hazardId) => _announced[hazardId] ?? AlertLevel.none;
+
+  /// Drop hazards no longer active (cleared, expired), so memory stays small.
+  void keepOnly(Set<String> activeIds) =>
+      _announced.removeWhere((id, _) => !activeIds.contains(id));
 }

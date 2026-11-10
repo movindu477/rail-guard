@@ -2,6 +2,7 @@
 
     python demos/offline_video.py
     python demos/offline_video.py --input clip.mp4 --output out.mp4 --calib camera/calibration/elp_wide.npz
+    python demos/offline_video.py --publish          # also send BRAKE NOW hazards to Firestore
 
 Draws the corridor, every detection (on-track vs off-track), the distance to
 each on-track object and the alert banner. Without --calib, distances use an
@@ -31,6 +32,10 @@ def main():
     ap.add_argument("--calib", help="calibration .npz from camera/calibration/calibrate.py")
     ap.add_argument("--segment-every", type=int, default=1, help="run TEP-Net every Nth frame")
     ap.add_argument("--max-frames", type=int, help="stop after this many frames")
+    ap.add_argument("--publish", action="store_true",
+                    help="send BRAKE NOW hazards to Firestore for the driver app (needs the phone app running)")
+    ap.add_argument("--unit", default="unit-01", help="train unit id, same as the phone app's RAILGUARD_UNIT")
+    ap.add_argument("--firebase-key", help="service-account key (default: ~/.railguard/firebase-key.json)")
     args = ap.parse_args()
 
     cap = cv2.VideoCapture(args.input)
@@ -51,6 +56,12 @@ def main():
     print(f"Focal length: {config.focal_px(w):.0f} px at {w}x{h}"
           f"{f' (from {args.calib})' if args.calib else ''}")
 
+    publisher = None
+    if args.publish:
+        from railguard.alerts.publisher import HazardPublisher
+        publisher = HazardPublisher(args.unit, key_path=args.firebase_key)
+        print(f"Publishing BRAKE NOW hazards to Firestore as {args.unit}")
+
     os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
     out = cv2.VideoWriter(args.output, cv2.VideoWriter_fourcc(*"mp4v"), fps, (w, h))
 
@@ -63,6 +74,8 @@ def main():
         res = pipeline.process_frame(frame)
         class_counts.update(d.cls_name for d in res.detections)
         alert_counts[res.alert] += 1
+        if publisher:
+            publisher.on_frame(res)
         draw(frame, res, calibrated=args.calib is not None, persist=config.persist_frames)
         out.write(frame)
         n += 1
@@ -72,6 +85,9 @@ def main():
 
     cap.release()
     out.release()
+    if publisher:
+        publisher.close()
+        print(f"Hazards published: {len(publisher.published)} {publisher.published}")
     print(f"Done: {n} frames in {time.time() - t0:.0f} s -> {args.output}")
     print(f"Detections by class: {dict(class_counts)}")
     print(f"Frames by alert: { {k or 'none': v for k, v in alert_counts.items()} }")
