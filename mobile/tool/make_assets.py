@@ -18,7 +18,7 @@ from PIL import Image, ImageDraw
 HERE = os.path.dirname(os.path.abspath(__file__))
 ASSETS = os.path.join(HERE, "..", "assets")
 
-ACCENT = (76, 195, 138, 255)     # RG.accent
+ACCENT = (47, 107, 255, 255)     # RG.blue
 BODY = (234, 244, 238, 255)
 DARK = (15, 18, 20, 255)
 GLASS = (27, 34, 39, 255)

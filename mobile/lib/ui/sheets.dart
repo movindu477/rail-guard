@@ -1,4 +1,4 @@
-// Bottom sheets, after the design reference:
+// Bottom sheets, white with rounded tops (after the design reference):
 //   showReportSheet   - what is it (4 types), then how bad (2 severities): two taps
 //   showHazardList    - active hazards as a timeline, most urgent first
 //   showHazardDetail  - everything about one hazard, with "Mark as cleared"
@@ -14,7 +14,7 @@ Future<T?> _sheet<T>(BuildContext context, Widget Function(BuildContext) body) =
       isScrollControlled: true,
       backgroundColor: RG.surface,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
       ),
       builder: (ctx) => SafeArea(
         top: false,
@@ -50,29 +50,18 @@ class _Header extends StatelessWidget {
                 alignment: Alignment.centerLeft,
                 child: TextButton(
                   onPressed: onLeft ?? () => Navigator.pop(context),
-                  child: Text(left, style: const TextStyle(fontSize: 16, color: RG.accent)),
+                  child: Text(left, style: const TextStyle(fontSize: 15, color: RG.blue)),
                 ),
               ),
               Text(title, style: TS.title),
             ],
           ),
         ),
+        const Divider(height: 1, color: RG.border),
       ],
     ),
   );
 }
-
-Widget emojiCircle(String emoji, {double size = 48, Color? ring}) => Container(
-  width: size,
-  height: size,
-  alignment: Alignment.center,
-  decoration: BoxDecoration(
-    color: RG.surfaceHigh,
-    shape: BoxShape.circle,
-    border: ring == null ? null : Border.all(color: ring, width: 2.5),
-  ),
-  child: Text(emoji, style: TextStyle(fontSize: size * 0.46)),
-);
 
 Widget _choiceRow({
   required Widget lead,
@@ -82,7 +71,7 @@ Widget _choiceRow({
 }) => InkWell(
   onTap: onTap,
   child: Padding(
-    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 9),
+    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
     child: Row(
       children: [
         lead,
@@ -91,87 +80,108 @@ Widget _choiceRow({
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(title, style: TS.bodyStrong.copyWith(fontSize: 17)),
+              Text(title, style: TS.bodyStrong),
               Text(hint, style: TS.small),
             ],
           ),
         ),
-        const Icon(Icons.chevron_right_rounded, color: RG.textDim, size: 24),
+        const Icon(Icons.chevron_right_rounded, color: RG.textDim, size: 22),
       ],
     ),
   ),
 );
 
-/// Returns (object_type, severity), or null if cancelled.
-Future<(String, String)?> showReportSheet(BuildContext context, {required double accuracyM}) {
+/// How bad is it: two large buttons, one tap. Shared by both report paths.
+Widget _severityStep(BuildContext ctx, HazardType t, {VoidCallback? onBack}) => Column(
+  mainAxisSize: MainAxisSize.min,
+  children: [
+    _Header(onBack == null ? 'Cancel' : 'Back', t.label, onLeft: onBack),
+    Padding(
+      padding: const EdgeInsets.fromLTRB(20, 14, 20, 10),
+      child: Row(
+        children: [
+          iconCircle(t.icon, t.colour, size: 36),
+          const SizedBox(width: 10),
+          const Text('How bad is it?', style: TS.body),
+        ],
+      ),
+    ),
+    for (final s in severities)
+      Padding(
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+        child: SizedBox(
+          width: double.infinity,
+          height: 76,
+          child: FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: s.colour,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+            ),
+            onPressed: () => Navigator.pop(ctx, (t.id, s.id)),
+            child: Row(
+              children: [
+                Icon(s.icon, size: 30),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        s.label.toUpperCase(),
+                        style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
+                      ),
+                      Text(s.hint, style: const TextStyle(fontSize: 13)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    const SizedBox(height: 4),
+  ],
+);
+
+/// Returns (object_type, severity), or null if cancelled. With [type] given
+/// (a quick-report button), it opens straight at the severity step.
+Future<(String, String)?> showReportSheet(
+  BuildContext context, {
+  required double accuracyM,
+  HazardType? type,
+}) {
+  if (type != null) {
+    return _sheet<(String, String)>(context, (ctx) => _severityStep(ctx, type));
+  }
   HazardType? picked;
   return _sheet<(String, String)>(
     context,
     (ctx) => StatefulBuilder(
       builder: (ctx, setSheet) {
         final t = picked;
-        if (t == null) {
-          // Step 1: what is it.
-          return Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const _Header('Cancel', 'Report hazard'),
-              Text('At your position  ·  ±${accuracyM.toStringAsFixed(0)} m', style: TS.small),
-              const SizedBox(height: 6),
-              for (final type in hazardTypes)
-                _choiceRow(
-                  lead: emojiCircle(type.emoji, size: 52),
-                  title: type.label,
-                  hint: type.hint,
-                  onTap: () => setSheet(() => picked = type),
-                ),
-              const SizedBox(height: 10),
-            ],
-          );
-        }
-        // Step 2: how bad. Two large buttons, one tap.
+        if (t != null) return _severityStep(ctx, t, onBack: () => setSheet(() => picked = null));
+        // Step 1: what is it.
         return Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            _Header('Back', t.label, onLeft: () => setSheet(() => picked = null)),
-            Text('${t.emoji}  How bad is it?', style: TS.small),
-            const SizedBox(height: 12),
-            for (final s in severities)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-                child: SizedBox(
-                  width: double.infinity,
-                  height: 84,
-                  child: FilledButton(
-                    style: FilledButton.styleFrom(
-                      backgroundColor: s.colour,
-                      foregroundColor: s.id == 'near' ? RG.onAccent : Colors.white,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-                    ),
-                    onPressed: () => Navigator.pop(ctx, (t.id, s.id)),
-                    child: Row(
-                      children: [
-                        Text(s.emoji, style: const TextStyle(fontSize: 30)),
-                        const SizedBox(width: 14),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Text(
-                                s.label.toUpperCase(),
-                                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-                              ),
-                              Text(s.hint, style: const TextStyle(fontSize: 14)),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
+            const _Header('Cancel', 'Report hazard'),
+            Padding(
+              padding: const EdgeInsets.only(top: 10, bottom: 4),
+              child: Text(
+                'At your position  ·  ±${accuracyM.toStringAsFixed(0)} m',
+                style: TS.small,
               ),
-            const SizedBox(height: 4),
+            ),
+            for (final type in hazardTypes)
+              _choiceRow(
+                lead: iconCircle(type.icon, type.colour, size: 46),
+                title: type.label,
+                hint: type.hint,
+                onTap: () => setSheet(() => picked = type),
+              ),
+            const SizedBox(height: 10),
           ],
         );
       },
@@ -220,14 +230,14 @@ Future<Hazard?> showHazardList(BuildContext context, {required List<HazardRow> r
         const _Header('Close', 'Active hazards'),
         if (rows.isEmpty)
           const Padding(
-            padding: EdgeInsets.fromLTRB(24, 20, 24, 36),
+            padding: EdgeInsets.fromLTRB(24, 24, 24, 36),
             child: Text('No reports in the last 30 minutes.', style: TS.body),
           )
         else
           Flexible(
             child: ListView.builder(
               shrinkWrap: true,
-              padding: const EdgeInsets.fromLTRB(20, 6, 20, 16),
+              padding: const EdgeInsets.fromLTRB(20, 14, 20, 16),
               itemCount: rows.length,
               itemBuilder: (_, i) {
                 final r = rows[i];
@@ -244,10 +254,11 @@ Future<Hazard?> showHazardList(BuildContext context, {required List<HazardRow> r
                         // Timeline: icon, with a line down to the next one.
                         Column(
                           children: [
-                            emojiCircle(
-                              t.emoji,
-                              size: 44,
-                              ring: r.level == AlertLevel.none ? null : colour,
+                            iconCircle(
+                              t.icon,
+                              r.level == AlertLevel.none ? t.colour : colour,
+                              size: 40,
+                              filled: r.level != AlertLevel.none,
                             ),
                             if (i < rows.length - 1)
                               Expanded(child: Container(width: 2, color: RG.border)),
@@ -256,7 +267,7 @@ Future<Hazard?> showHazardList(BuildContext context, {required List<HazardRow> r
                         const SizedBox(width: 14),
                         Expanded(
                           child: Padding(
-                            padding: const EdgeInsets.only(top: 2, bottom: 16),
+                            padding: const EdgeInsets.only(top: 1, bottom: 18),
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
@@ -291,10 +302,10 @@ Future<Hazard?> showHazardList(BuildContext context, {required List<HazardRow> r
 }
 
 Widget _fact(IconData icon, String text, {Color colour = RG.text}) => Padding(
-  padding: const EdgeInsets.symmetric(vertical: 5),
+  padding: const EdgeInsets.symmetric(vertical: 6),
   child: Row(
     children: [
-      Icon(icon, size: 20, color: RG.textDim),
+      Icon(icon, size: 18, color: RG.blue),
       const SizedBox(width: 12),
       Expanded(
         child: Text(text, style: TS.body.copyWith(color: colour)),
@@ -310,7 +321,7 @@ Future<bool> showHazardDetail(BuildContext context, {required HazardRow row}) as
   final t = typeInfo(h.objectType);
   final s = severityInfo(h);
   final time = h.time;
-  final colour = levelColour(row.level);
+  final colour = row.level == AlertLevel.none ? t.colour : levelColour(row.level);
   final cleared = await _sheet<bool>(
     context,
     (ctx) => SingleChildScrollView(
@@ -319,26 +330,34 @@ Future<bool> showHazardDetail(BuildContext context, {required HazardRow row}) as
         mainAxisSize: MainAxisSize.min,
         children: [
           const _Header('Close', 'Hazard'),
-          const SizedBox(height: 8),
-          emojiCircle(t.emoji, size: 72, ring: row.level == AlertLevel.none ? RG.border : colour),
+          const SizedBox(height: 16),
+          iconCircle(t.icon, colour, size: 68, filled: true),
           const SizedBox(height: 10),
-          Text(t.label, style: TS.title.copyWith(fontSize: 20)),
+          Text(t.label, style: TS.title.copyWith(fontSize: 18)),
           const SizedBox(height: 6),
           // Severity chip.
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
             decoration: BoxDecoration(
-              color: s.colour.withValues(alpha: 0.18),
+              color: s.colour.withValues(alpha: 0.10),
               borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: s.colour),
             ),
-            child: Text(
-              '${s.emoji}  ${s.label}  ·  ${s.hint}',
-              style: TS.small.copyWith(color: RG.text),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(s.icon, size: 15, color: s.colour),
+                const SizedBox(width: 6),
+                Text('${s.label}  ·  ${s.hint}', style: TS.small.copyWith(color: s.colour)),
+              ],
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(24, 14, 24, 4),
+          Container(
+            margin: const EdgeInsets.fromLTRB(20, 16, 20, 4),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+            decoration: BoxDecoration(
+              color: RG.surfaceHigh,
+              borderRadius: BorderRadius.circular(16),
+            ),
             child: Column(
               children: [
                 _fact(
@@ -365,7 +384,7 @@ Future<bool> showHazardDetail(BuildContext context, {required HazardRow row}) as
             ),
           ),
           const Padding(
-            padding: EdgeInsets.fromLTRB(28, 8, 28, 14),
+            padding: EdgeInsets.fromLTRB(28, 10, 28, 14),
             child: Text(
               'Clearing removes this warning for every train. Only clear it once the line is clear.',
               textAlign: TextAlign.center,
@@ -376,11 +395,11 @@ Future<bool> showHazardDetail(BuildContext context, {required HazardRow row}) as
             padding: const EdgeInsets.symmetric(horizontal: 20),
             child: SizedBox(
               width: double.infinity,
-              height: 54,
+              height: 52,
               child: FilledButton(
                 style: FilledButton.styleFrom(
-                  backgroundColor: RG.accent,
-                  foregroundColor: RG.onAccent,
+                  backgroundColor: RG.pill,
+                  foregroundColor: Colors.white,
                   shape: const StadiumBorder(),
                 ),
                 onPressed: () => Navigator.pop(ctx, true),

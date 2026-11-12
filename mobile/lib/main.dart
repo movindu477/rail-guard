@@ -80,6 +80,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final Set<String> _acknowledged = {}; // STOP alerts the driver has acknowledged
   Timer? _recheck; // re-runs the check while standing still
   Timer? _positionUpload; // train_position every 5 s
+  Timer? _clock; // refreshes "updated ... ago" once a second
   bool _saving = false;
 
   // Map
@@ -124,6 +125,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
     WidgetsBinding.instance.addPostFrameCallback((_) => _makeIcons());
     _positionUpload = Timer.periodic(positionUploadInterval, (_) => _uploadPosition());
+    _clock = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted && _pos != null) setState(() {});
+    });
   }
 
   /// Back from Settings (permission or location changed there): retry.
@@ -141,6 +145,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _hazardSub?.cancel();
     _recheck?.cancel();
     _positionUpload?.cancel();
+    _clock?.cancel();
     _alarm.dispose();
     _map?.dispose();
     super.dispose();
@@ -377,7 +382,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _report() async {
+  /// Report button (pick type, then severity) or a quick-report button
+  /// ([type] given: straight to severity).
+  Future<void> _report({HazardType? type}) async {
     final pos = _pos;
     if (pos == null) {
       // Refuse rather than save a wrong location.
@@ -386,16 +393,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       ).showSnackBar(SnackBar(content: Text('No GPS fix yet, nothing sent. ${_gpsProblem ?? ''}')));
       return;
     }
-    final choice = await showReportSheet(context, accuracyM: pos.accuracy);
+    final choice = await showReportSheet(context, accuracyM: pos.accuracy, type: type);
     if (choice == null || !mounted) return; // closed without choosing
-    final (type, severity) = choice;
-    final label = typeInfo(type).label;
+    final (objectType, severity) = choice;
+    final label = typeInfo(objectType).label;
     await _write(
       FirebaseFirestore.instance.collection('hazards').add({
         'latitude': pos.latitude,
         'longitude': pos.longitude,
         'timestamp': Timestamp.now(),
-        'object_type': type,
+        'object_type': objectType,
         'severity': severity,
         'distance_m': 0,
         'status': 'active',
@@ -449,14 +456,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           Polyline(
             polylineId: PolylineId('glow$i'),
             points: lines[i],
-            color: RG.accent.withValues(alpha: 0.22),
-            width: 10,
+            color: RG.blue.withValues(alpha: 0.18),
+            width: 9,
             zIndex: 0,
           ),
           Polyline(
             polylineId: PolylineId('rail$i'),
             points: lines[i],
-            color: RG.accent,
+            color: RG.blue,
             width: 3,
             zIndex: 1,
           ),
@@ -468,9 +475,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Future<void> _makeIcons() async {
     final dpr = MediaQuery.of(context).devicePixelRatio;
     final icons = <String, BitmapDescriptor>{};
-    for (final emoji in {...hazardTypes.map((t) => t.emoji), '⚠️'}) {
+    // One pin per hazard type and alert level; 'other' covers unknown types.
+    for (final t in [...hazardTypes, typeInfo('other')]) {
       for (final level in AlertLevel.values) {
-        icons['$emoji/${level.name}'] = await hazardPin(emoji, levelColour(level), dpr);
+        final colour = level == AlertLevel.none ? t.colour : levelColour(level);
+        icons['${t.id}/${level.name}'] = await hazardPin(t.icon, colour, dpr);
       }
     }
     final train = await BitmapDescriptor.asset(
@@ -500,7 +509,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final levels = {for (final w in _ahead) w.hazard.id: w.level};
     final markers = <Marker>{};
     for (final h in _fresh()) {
-      final emoji = typeInfo(h.objectType).emoji;
+      final known = hazardTypes.any((t) => t.id == h.objectType);
+      final key = known ? h.objectType : 'other';
       final level = levels[h.id] ?? AlertLevel.none;
       markers.add(
         Marker(
@@ -508,7 +518,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           // whose icon alone changed, so a new id forces the swap.
           markerId: MarkerId('${h.id}/${level.name}'),
           position: LatLng(h.latitude, h.longitude),
-          icon: _icons['$emoji/${level.name}'] ?? BitmapDescriptor.defaultMarker,
+          icon: _icons['$key/${level.name}'] ?? BitmapDescriptor.defaultMarker,
           anchor: const Offset(0.5, 1.0),
           consumeTapEvents: true,
           onTap: () => _showHazard(h),
@@ -543,14 +553,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         circleId: const CircleId('accuracy'),
         center: LatLng(pos.latitude, pos.longitude),
         radius: pos.accuracy,
-        fillColor: RG.accent.withValues(alpha: 0.12),
-        strokeColor: RG.accent.withValues(alpha: 0.45),
+        fillColor: RG.blue.withValues(alpha: 0.14),
+        strokeColor: RG.blue.withValues(alpha: 0.45),
         strokeWidth: 1,
       ),
     };
   }
 
   // ------------------------------------------------------------- screen
+  //
+  // After the design reference: full-screen light map; a profile-style pill
+  // (logo, name, unit) and a bell (active hazards) at the top; a quick-report
+  // rail on the left; at the bottom a dark live-status pill and a white
+  // status card, then a bar with Follow, the red REPORT button and Speed.
 
   @override
   Widget build(BuildContext context) {
@@ -579,8 +594,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   zoomControlsEnabled: false,
                   mapToolbarEnabled: false,
                   compassEnabled: false,
-                  // Keep the Google logo and centre clear of the overlays.
-                  padding: const EdgeInsets.only(top: 100, bottom: 220),
+                  // Keep the Google logo and the train clear of the overlays.
+                  padding: const EdgeInsets.only(top: 90, bottom: 300),
                   onMapCreated: (c) {
                     _map = c;
                     final pos = _pos;
@@ -590,8 +605,27 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               ),
             ),
           ),
-          Positioned(top: 0, left: 0, right: 0, child: _topBar()),
-          Positioned(bottom: 0, left: 0, right: 0, child: _bottomPanel()),
+          // Overlays. Empty space between them passes touches to the map.
+          Positioned.fill(
+            child: SafeArea(
+              child: Column(
+                children: [
+                  _topBar(),
+                  Expanded(
+                    child: Align(
+                      alignment: const Alignment(-1, -0.55),
+                      child: Padding(
+                        padding: const EdgeInsets.only(left: 12),
+                        child: _quickReportRail(),
+                      ),
+                    ),
+                  ),
+                  _statusPanel(),
+                  _bottomBar(),
+                ],
+              ),
+            ),
+          ),
           // STOP: takes over the screen until acknowledged.
           if (stop != null)
             Positioned.fill(
@@ -606,96 +640,343 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
-  Widget _topBar() {
-    final pos = _pos;
-    final ok = pos != null && _gpsProblem == null;
-    final heading = pos == null ? null : usableHeading(pos.heading, pos.speed);
-    final motion = heading == null
-        ? 'stationary'
-        : '${(pos!.speed * 3.6).round()} km/h  ·  ${heading.toStringAsFixed(0)}°';
-    final status = !ok
-        ? 'No GPS fix  ·  $unitId'
-        : simMode
-        ? 'SIMULATED GPS  ·  $motion'
-        : 'GPS ±${pos.accuracy.toStringAsFixed(0)} m  ·  $motion  ·  $unitId';
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [RG.bg, RG.bg.withValues(alpha: 0.85), RG.bg.withValues(alpha: 0)],
-          stops: const [0, 0.6, 1],
+  /// The RailGuard logo, centred in a white circle.
+  Widget _logo(double size) => Container(
+    width: size,
+    height: size,
+    decoration: BoxDecoration(
+      color: Colors.white,
+      shape: BoxShape.circle,
+      border: Border.all(color: RG.border),
+    ),
+    child: ClipOval(child: Image.asset('assets/images/logo_mark.png', fit: BoxFit.cover)),
+  );
+
+  /// White round button with an optional red count badge.
+  Widget _roundButton(IconData icon, VoidCallback onTap, {int badge = 0}) => Stack(
+    clipBehavior: Clip.none,
+    children: [
+      Container(
+        decoration: const BoxDecoration(shape: BoxShape.circle, boxShadow: cardShadow),
+        child: Material(
+          color: Colors.white,
+          shape: const CircleBorder(),
+          child: InkWell(
+            customBorder: const CircleBorder(),
+            onTap: onTap,
+            child: SizedBox(width: 48, height: 48, child: Icon(icon, color: RG.text, size: 24)),
+          ),
         ),
       ),
-      child: SafeArea(
-        bottom: false,
+      if (badge > 0)
+        Positioned(
+          right: -2,
+          top: -2,
+          child: Container(
+            constraints: const BoxConstraints(minWidth: 20),
+            height: 20,
+            padding: const EdgeInsets.symmetric(horizontal: 5),
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: RG.brand,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: Colors.white, width: 2),
+            ),
+            child: Text(
+              '$badge',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ),
+    ],
+  );
+
+  Widget _topBar() {
+    final pos = _pos;
+    final subtitle = simMode
+        ? 'Simulated GPS'
+        : pos == null || _gpsProblem != null
+        ? '$unitId  ·  no GPS fix'
+        : '$unitId  ·  GPS ±${pos.accuracy.toStringAsFixed(0)} m';
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.fromLTRB(5, 5, 18, 5),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(32),
+              boxShadow: cardShadow,
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _logo(42),
+                const SizedBox(width: 10),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('RailGuard', style: TS.title),
+                    Text(subtitle, style: TS.small),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const Spacer(),
+          _roundButton(Icons.notifications_none_rounded, _showList, badge: _fresh().length),
+        ],
+      ),
+    );
+  }
+
+  /// Quick report: one tap on a type goes straight to the severity choice.
+  Widget _quickReportRail() => Container(
+    width: 70,
+    padding: const EdgeInsets.symmetric(vertical: 10),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(22),
+      boxShadow: cardShadow,
+    ),
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Text('REPORT', style: TextStyle(fontSize: 9, letterSpacing: 1, color: RG.textDim)),
+        const SizedBox(height: 4),
+        for (final t in hazardTypes)
+          InkWell(
+            borderRadius: BorderRadius.circular(14),
+            onTap: _saving ? null : () => _report(type: t),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 7),
+              child: Column(
+                children: [
+                  iconCircle(t.icon, t.colour, size: 40),
+                  const SizedBox(height: 4),
+                  Text(t.label, style: TS.label, maxLines: 1, overflow: TextOverflow.fade),
+                ],
+              ),
+            ),
+          ),
+      ],
+    ),
+  );
+
+  /// Dark live-status pill on top of the status card, in one white panel.
+  Widget _statusPanel() => Container(
+    margin: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+    padding: const EdgeInsets.all(6),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(24),
+      boxShadow: cardShadow,
+    ),
+    child: Column(children: [_livePill(), const SizedBox(height: 6), _statusCard()]),
+  );
+
+  Widget _livePill() {
+    final pos = _pos;
+    final ok = pos != null && _gpsProblem == null;
+    final (dot, label) = simMode
+        ? (RG.blue, 'Simulated GPS')
+        : ok
+        ? (RG.live, 'GPS live')
+        : (RG.warn, 'No GPS fix');
+    var detail = '';
+    if (ok) {
+      final secs = DateTime.now().difference(pos.timestamp).inSeconds.clamp(0, 99999);
+      detail =
+          '±${pos.accuracy.toStringAsFixed(0)} m  ·  updated '
+          '${secs < 60 ? '$secs sec' : '${secs ~/ 60} min'} ago';
+    }
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+      decoration: BoxDecoration(color: RG.pill, borderRadius: BorderRadius.circular(18)),
+      child: Row(
+        children: [
+          Container(
+            width: 10,
+            height: 10,
+            decoration: BoxDecoration(
+              color: dot,
+              shape: BoxShape.circle,
+              boxShadow: [BoxShadow(color: dot.withValues(alpha: 0.6), blurRadius: 6)],
+            ),
+          ),
+          const SizedBox(width: 10),
+          Text(
+            label,
+            style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              detail,
+              textAlign: TextAlign.right,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: Colors.white.withValues(alpha: 0.65), fontSize: 12),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Hazard status. Red at STOP, amber at CAUTION and when hazards cannot be
+  /// checked (no GPS, feed offline); white otherwise. Never "no hazards"
+  /// unless that was checked. Tap: the active-hazards list.
+  Widget _statusCard() {
+    final w = _warning;
+    final pos = _pos;
+    final n = _fresh().length;
+    var bg = Colors.white;
+    var fg = RG.text;
+    var dim = RG.textDim;
+    IconData icon;
+    Color iconColour;
+    String title, subtitle;
+    var tag = '';
+
+    if (w != null) {
+      final t = typeInfo(w.hazard.objectType);
+      final s = severityInfo(w.hazard);
+      icon = t.icon;
+      iconColour = levelColour(w.level);
+      title = '${t.label}  ·  ${formatDistance(w.distanceM)}';
+      subtitle = '${s.label}  ·  ${w.headingKnown ? 'ahead' : 'direction unknown'}';
+      tag = levelName(w.level);
+      if (w.level == AlertLevel.stop || w.level == AlertLevel.caution) {
+        bg = iconColour;
+        fg = Colors.white;
+        dim = Colors.white.withValues(alpha: 0.85);
+      }
+    } else if (_hazardProblem != null || pos == null) {
+      icon = _hazardProblem != null ? Icons.cloud_off_rounded : Icons.gps_off_rounded;
+      iconColour = RG.warn;
+      title = 'Hazards not checked';
+      subtitle = _hazardProblem ?? _gpsProblem ?? 'No GPS position';
+      bg = RG.warn;
+      fg = Colors.white;
+      dim = Colors.white.withValues(alpha: 0.9);
+    } else {
+      icon = Icons.verified_user_rounded;
+      iconColour = RG.blue;
+      title = 'No hazards ahead';
+      subtitle = n == 0 ? 'Line clear within 3 km' : '$n active report${n == 1 ? '' : 's'} nearby';
+      tag = 'CLEAR';
+    }
+    final filled = bg != Colors.white;
+    final now = DateTime.now();
+    final infoColour = filled ? Colors.white : RG.blue;
+
+    return Material(
+      color: bg,
+      borderRadius: BorderRadius.circular(18),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: _showList,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 6, 10, 24),
+          padding: const EdgeInsets.fromLTRB(10, 12, 12, 10),
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
                 children: [
-                  Container(
-                    width: 40,
-                    height: 40,
-                    decoration: const BoxDecoration(color: RG.surfaceHigh, shape: BoxShape.circle),
-                    child: const Icon(Icons.train_rounded, color: RG.accent, size: 22),
-                  ),
+                  filled
+                      ? Container(
+                          width: 40,
+                          height: 40,
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.22),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(icon, color: Colors.white, size: 22),
+                        )
+                      : iconCircle(icon, iconColour, size: 40),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text('RailGuard', style: TS.title),
-                        Row(
-                          children: [
-                            Container(
-                              width: 8,
-                              height: 8,
-                              decoration: BoxDecoration(
-                                color: ok && !simMode ? RG.accent : RG.warn,
-                                shape: BoxShape.circle,
-                              ),
-                            ),
-                            const SizedBox(width: 6),
-                            Flexible(
-                              child: Text(status, overflow: TextOverflow.ellipsis, style: TS.small),
-                            ),
-                          ],
+                        Text(
+                          title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: fg),
+                        ),
+                        Text(
+                          subtitle,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(fontSize: 13, color: dim),
                         ),
                       ],
                     ),
                   ),
-                  Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Transform.scale(
-                        scale: 0.85,
-                        child: Switch(
-                          value: _follow,
-                          onChanged: (v) {
-                            setState(() => _follow = v);
-                            final p = _pos;
-                            if (v && p != null) _moveTo(LatLng(p.latitude, p.longitude));
-                          },
+                  if (tag.isNotEmpty)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: filled
+                            ? Colors.white.withValues(alpha: 0.22)
+                            : iconColour.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        tag,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.5,
+                          color: filled ? Colors.white : iconColour,
                         ),
                       ),
-                      const Text('Follow', style: TextStyle(fontSize: 11, color: RG.textDim)),
-                    ],
-                  ),
+                    ),
                 ],
               ),
-              // Why there is no fix, in full.
-              if (_gpsProblem != null)
-                Container(
-                  margin: const EdgeInsets.only(top: 8),
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: RG.surfaceHigh.withValues(alpha: 0.95),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(_gpsProblem!, textAlign: TextAlign.center, style: TS.body),
+              const SizedBox(height: 8),
+              Padding(
+                padding: const EdgeInsets.only(left: 52),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.calendar_today_rounded, size: 13, color: dim),
+                        const SizedBox(width: 5),
+                        Text(dayLabel(now), style: TextStyle(fontSize: 12, color: dim)),
+                        const SizedBox(width: 14),
+                        Icon(Icons.schedule_rounded, size: 14, color: dim),
+                        const SizedBox(width: 5),
+                        Text(hhmm(now), style: TextStyle(fontSize: 12, color: dim)),
+                      ],
+                    ),
+                    if (pos != null) ...[
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Icon(Icons.location_on_outlined, size: 14, color: infoColour),
+                          const SizedBox(width: 5),
+                          Flexible(
+                            child: Text(
+                              'Coordinates: ${pos.latitude.toStringAsFixed(5)} N, '
+                              '${pos.longitude.toStringAsFixed(5)} E',
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(fontSize: 12, color: infoColour),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ],
                 ),
+              ),
             ],
           ),
         ),
@@ -703,154 +984,112 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
-  Widget _bottomPanel() => Container(
-    decoration: BoxDecoration(
-      gradient: LinearGradient(
-        begin: Alignment.bottomCenter,
-        end: Alignment.topCenter,
-        colors: [RG.bg, RG.bg.withValues(alpha: 0.9), RG.bg.withValues(alpha: 0)],
-        stops: const [0, 0.7, 1],
-      ),
-    ),
-    child: SafeArea(
-      top: false,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 28, 16, 10),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _statusCard(),
-            const SizedBox(height: 10),
-            // Large tap target: pressed in a moving cab.
-            SizedBox(
-              width: double.infinity,
-              height: 58,
-              child: FilledButton(
-                style: FilledButton.styleFrom(
-                  backgroundColor: RG.accent,
-                  foregroundColor: RG.onAccent,
-                  disabledBackgroundColor: RG.accent.withValues(alpha: 0.5),
-                  shape: const StadiumBorder(),
+  Widget _navItem(IconData icon, String label, {VoidCallback? onTap, bool active = false}) =>
+      InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onTap,
+        child: SizedBox(
+          width: 86,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: active ? RG.blue : RG.surfaceHigh,
+                  shape: BoxShape.circle,
                 ),
-                onPressed: _saving ? null : _report,
+                child: Icon(icon, size: 21, color: active ? Colors.white : RG.text),
+              ),
+              const SizedBox(height: 4),
+              Text(label, style: TS.label),
+            ],
+          ),
+        ),
+      );
+
+  /// Follow, the red REPORT button raised in the middle, and Speed.
+  Widget _bottomBar() {
+    final pos = _pos;
+    final speed = pos == null || pos.speed < 0 ? 'Speed' : '${(pos.speed * 3.6).round()} km/h';
+    return SizedBox(
+      height: 96,
+      child: Stack(
+        clipBehavior: Clip.none,
+        alignment: Alignment.topCenter,
+        children: [
+          Positioned.fill(
+            top: 18,
+            child: Container(
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+                boxShadow: cardShadow,
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 18),
+              child: Row(
+                children: [
+                  _navItem(
+                    Icons.navigation_rounded,
+                    'Follow',
+                    active: _follow,
+                    onTap: () {
+                      setState(() => _follow = !_follow);
+                      final p = _pos;
+                      if (_follow && p != null) _moveTo(LatLng(p.latitude, p.longitude));
+                    },
+                  ),
+                  const Spacer(),
+                  _navItem(Icons.speed_rounded, speed),
+                ],
+              ),
+            ),
+          ),
+          // Large: pressed in a moving cab.
+          Positioned(
+            top: 0,
+            child: GestureDetector(
+              onTap: _saving ? null : () => _report(),
+              child: Container(
+                width: 84,
+                height: 84,
+                decoration: BoxDecoration(
+                  color: RG.brand,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.white, width: 5),
+                  boxShadow: [
+                    BoxShadow(
+                      color: RG.brand.withValues(alpha: 0.35),
+                      blurRadius: 16,
+                      offset: const Offset(0, 6),
+                    ),
+                  ],
+                ),
                 child: _saving
-                    ? const SizedBox(
-                        width: 24,
-                        height: 24,
-                        child: CircularProgressIndicator(strokeWidth: 3, color: RG.onAccent),
+                    ? const Padding(
+                        padding: EdgeInsets.all(26),
+                        child: CircularProgressIndicator(strokeWidth: 3, color: Colors.white),
                       )
-                    : const Row(
+                    : const Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(Icons.add_alert_rounded, size: 22),
-                          SizedBox(width: 8),
-                          Text('Report hazard', style: TS.button),
+                          Icon(Icons.campaign_rounded, color: Colors.white, size: 28),
+                          Text(
+                            'REPORT',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 0.8,
+                            ),
+                          ),
                         ],
                       ),
               ),
             ),
-          ],
-        ),
-      ),
-    ),
-  );
-
-  /// Colour by tier: STOP red, CAUTION orange, INFO grey; orange also when
-  /// hazards cannot be checked (no GPS, feed offline). Never "no hazards"
-  /// unless that was checked.
-  Widget _statusCard() {
-    final w = _warning;
-    final pos = _pos;
-    final n = _fresh().length;
-    Color colour = RG.surface;
-    Color fg = RG.text;
-    Widget lead;
-    String title, subtitle;
-    final time = pos == null ? null : hhmm(pos.timestamp);
-
-    if (w != null) {
-      final t = typeInfo(w.hazard.objectType);
-      final s = severityInfo(w.hazard);
-      lead = Text(t.emoji, style: const TextStyle(fontSize: 26));
-      title = '${t.label}  ·  ${formatDistance(w.distanceM)}';
-      subtitle = '${s.label}  ·  ${w.headingKnown ? 'ahead' : 'direction unknown'}';
-      switch (w.level) {
-        case AlertLevel.stop:
-          colour = RG.danger;
-          subtitle += '  ·  STOP';
-        case AlertLevel.caution:
-          colour = RG.warn;
-          fg = RG.onAccent;
-          subtitle += '  ·  CAUTION';
-        default:
-          subtitle += '  ·  INFO';
-      }
-    } else if (_hazardProblem != null || pos == null) {
-      colour = RG.warn;
-      fg = RG.onAccent;
-      lead = Icon(
-        _hazardProblem != null ? Icons.cloud_off_rounded : Icons.gps_off_rounded,
-        color: RG.onAccent,
-        size: 24,
-      );
-      title = 'Hazards not checked';
-      subtitle = _hazardProblem ?? 'No GPS position';
-    } else {
-      lead = const Icon(Icons.check_circle_rounded, color: RG.accent, size: 26);
-      title = 'No hazards ahead';
-      subtitle = n == 0 ? 'Line clear within 3 km' : '$n active report${n == 1 ? '' : 's'} nearby';
-    }
-    final filled = colour != RG.surface;
-
-    return Material(
-      color: colour,
-      borderRadius: BorderRadius.circular(20),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(20),
-        onTap: _showList,
-        child: Container(
-          padding: const EdgeInsets.fromLTRB(12, 12, 14, 12),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(20),
-            border: filled ? null : Border.all(color: w != null ? RG.info : RG.border),
           ),
-          child: Row(
-            children: [
-              Container(
-                width: 46,
-                height: 46,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: filled ? Colors.white.withValues(alpha: 0.22) : RG.surfaceHigh,
-                  shape: BoxShape.circle,
-                ),
-                child: lead,
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: fg),
-                    ),
-                    Text(
-                      subtitle,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(fontSize: 13, color: fg.withValues(alpha: 0.85)),
-                    ),
-                  ],
-                ),
-              ),
-              if (time != null && !filled)
-                Text(time, style: const TextStyle(fontSize: 13, color: RG.accent)),
-            ],
-          ),
-        ),
+        ],
       ),
     );
   }

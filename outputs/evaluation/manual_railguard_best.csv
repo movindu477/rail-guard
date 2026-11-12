@@ -1,0 +1,13 @@
+set,images_scored,images_in_set,conf,iou,metric,subset,boxes,recall,too_few_to_rank
+manual day,57,57,0.25,0.5,class-aware recall,person,59,0.288,0
+manual day,57,57,0.25,0.5,class-aware recall,car,20,0.4,0
+manual day,57,57,0.25,0.5,class-aware recall,motorcycle,9,0.333,1
+manual day,57,57,0.25,0.5,class-aware recall,bus,9,0.222,1
+manual day,57,57,0.25,0.5,class-aware recall,truck,3,0.333,1
+manual day,57,57,0.25,0.5,class-aware recall,cow,1,0.0,1
+manual day,57,57,0.25,0.5,class-aware recall,all,101,0.307,0
+manual day,57,57,0.25,0.5,class-agnostic recall,all,101,0.337,0
+manual day,57,57,0.25,0.5,class-agnostic recall,<20 px,1,0.0,1
+manual day,57,57,0.25,0.5,class-agnostic recall,20-50 px,24,0.0,0
+manual day,57,57,0.25,0.5,class-agnostic recall,50-100 px,44,0.364,0
+manual day,57,57,0.25,0.5,class-agnostic recall,>100 px,32,0.562,0

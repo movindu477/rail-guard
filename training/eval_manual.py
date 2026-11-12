@@ -12,7 +12,12 @@ Three metrics per set, at the pipeline's confidence threshold (0.25) and IoU 0.5
 Predictions are matched to the 7 hazard classes by name, so stock COCO and
 RailGuard models are scored the same way. Each prediction matches at most one
 box (highest confidence first, to the best-overlapping unmatched box).
-A set is skipped until every image in it has a label file.
+
+By default a set is skipped until every image in it has a label file.
+--labelled-only scores just the images that have one, and always says how many:
+"scored on 25 of 57 images (labelled subset)" on screen, and images_scored /
+images_in_set in every CSV row, so a figure cannot be quoted without its sample
+size. It refuses a set with fewer than 10 labelled images.
 """
 
 import argparse
@@ -33,13 +38,14 @@ NAMES = ["person", "car", "motorcycle", "bus", "truck", "cow", "elephant"]
 THRESH = 0.25   # PipelineConfig.conf_threshold
 MIN_TO_RANK = 20   # fewer boxes than this in a class or band: report it, don't rank models on it
 BANDS = [(0, 20, "<20 px"), (20, 50, "20-50 px"), (50, 100, "50-100 px"), (100, 1e9, ">100 px")]
+MIN_LABELLED = 10  # --labelled-only: fewer labelled images than this and the set is not scored
 
 
-def match(preds, gts, class_aware):
+def match(preds, gts, class_aware, min_iou=0.5):
     """preds: [(conf, cls, box)], gts: [(cls, box)] -> set of matched gt indices."""
     hit = set()
     for _, pc, pb in sorted(preds, reverse=True):
-        best, best_j = 0.5, None
+        best, best_j = min_iou, None
         for j, (gc, gb) in enumerate(gts):
             if j in hit or (class_aware and gc != pc):
                 continue
@@ -51,12 +57,25 @@ def match(preds, gts, class_aware):
     return hit
 
 
-def score_set(model, folder, imgsz):
-    images = sorted(glob.glob(os.path.join(folder, "images", "*.jpg")))
-    missing = [p for p in images if not os.path.exists(
+def score_set(model, folder, imgsz, labelled_only=False, conf=THRESH, min_iou=0.5):
+    """Returns (rows, note, images_scored, images_in_set); rows is None if the
+    set is not scored (and note says why)."""
+    all_images = sorted(glob.glob(os.path.join(folder, "images", "*.jpg")))
+    labelled = [p for p in all_images if os.path.exists(
         os.path.join(folder, "labels", os.path.splitext(os.path.basename(p))[0] + ".txt"))]
-    if not images or missing:
-        return None, f"{len(images) - len(missing)}/{len(images)} images labelled"
+    total = len(all_images)
+    if labelled_only:
+        if not labelled:
+            return None, f"0 of {total} images labelled: skipped", 0, total
+        if len(labelled) < MIN_LABELLED:
+            return (None, f"only {len(labelled)} of {total} images labelled: refused "
+                    f"(--labelled-only needs at least {MIN_LABELLED})", 0, total)
+        images = labelled
+    else:
+        if not all_images or len(labelled) < total:
+            return (None, f"{len(labelled)}/{total} images labelled: skipped, label every image "
+                    f"first (or use --labelled-only)", 0, total)
+        images = all_images
 
     to_ds = {i: NAMES.index(n) for i, n in model.names.items() if n in NAMES}
     n_cls, hit_cls = [0] * 7, [0] * 7
@@ -64,12 +83,12 @@ def score_set(model, folder, imgsz):
     n_all = hit_aware = hit_agn = 0
     for img in images:
         gts = labels_for(img)
-        r = model.predict(img, imgsz=imgsz, conf=THRESH, verbose=False)[0]
+        r = model.predict(img, imgsz=imgsz, conf=conf, verbose=False)[0]
         h = r.orig_shape[0]
         preds = [(c, to_ds[k], b) for c, k, b in zip(r.boxes.conf.tolist(), r.boxes.cls.int().tolist(),
                                                      r.boxes.xyxyn.tolist()) if k in to_ds]
-        aware = match(preds, gts, class_aware=True)
-        agn = match(preds, gts, class_aware=False)
+        aware = match(preds, gts, class_aware=True, min_iou=min_iou)
+        agn = match(preds, gts, class_aware=False, min_iou=min_iou)
         for j, (c, b) in enumerate(gts):
             n_all += 1
             n_cls[c] += 1
@@ -90,7 +109,9 @@ def score_set(model, folder, imgsz):
     rows.append(("class-agnostic recall", "all", n_all, rate(hit_agn, n_all)))
     for (lo, hi, label), n, a in zip(BANDS, n_band, hit_band):
         rows.append(("class-agnostic recall", label, n, rate(a, n)))
-    return rows, f"{len(images)} images, {n_all} boxes"
+    scope = (f"scored on {len(images)} of {total} images (labelled subset)"
+             if len(images) < total else f"scored on all {total} images")
+    return rows, f"{scope}, {n_all} boxes", len(images), total
 
 
 def main():
@@ -100,23 +121,33 @@ def main():
     ap.add_argument("--out", required=True, help="output .csv")
     ap.add_argument("--imgsz", type=int, default=1280)
     ap.add_argument("--sets", nargs="*", default=list(SETS), help="which sets (default: all)")
+    ap.add_argument("--conf", type=float, default=THRESH,
+                    help=f"confidence threshold (default {THRESH}, the pipeline's; other values are diagnostics)")
+    ap.add_argument("--iou", type=float, default=0.5,
+                    help="IoU needed to count a box as found (default 0.5; other values are diagnostics)")
+    ap.add_argument("--labelled-only", action="store_true",
+                    help="score only images that have a label file (says how many; "
+                         f"needs at least {MIN_LABELLED})")
     args = ap.parse_args()
 
     model = YOLO(args.model)
     out_rows = []
-    print(f"Model: {args.model}  ({len(model.names)} classes), conf >= {THRESH}, IoU >= 0.5")
+    print(f"Model: {args.model}  ({len(model.names)} classes), conf >= {args.conf}, IoU >= {args.iou}"
+          + ("   [diagnostic settings, not the pipeline's]" if (args.conf, args.iou) != (THRESH, 0.5) else ""))
     for name in args.sets:
-        rows, note = score_set(model, SETS[name], args.imgsz)
+        rows, note, scored, total = score_set(model, SETS[name], args.imgsz, args.labelled_only,
+                                              args.conf, args.iou)
         print(f"\n== {name}: {note}")
         if rows is None:
-            print("   skipped: label every image first")
             continue
         print(f"   {'metric':24s}{'subset':12s}{'boxes':>7s}{'recall':>9s}")
         for metric, subset, n, rec in rows:
             few = n < MIN_TO_RANK
             print(f"   {metric:24s}{subset:12s}{n:>7d}{str(rec):>9s}"
                   + (f"   too few boxes to rank models (< {MIN_TO_RANK})" if few and n else ""))
-            out_rows.append({"set": name, "metric": metric, "subset": subset,
+            out_rows.append({"set": name, "images_scored": scored, "images_in_set": total,
+                             "conf": args.conf, "iou": args.iou,
+                             "metric": metric, "subset": subset,
                              "boxes": n, "recall": rec, "too_few_to_rank": int(few)})
 
     if out_rows:

@@ -105,3 +105,28 @@ the 50–100 px band and above is where ranging and detection overlap.
 
 Write down for the report: who labelled, when, how many frames and boxes per
 class, and any frame where a rule was hard to apply (frame name + reason).
+
+## Amendment after the first scoring review (10 Nov 2026)
+
+The first score of the 25 labelled daytime frames gave implausibly low recall
+(stock COCO found 31% of objects over 100 px tall). Overlaying labels on the
+model's boxes (`training/overlay_manual.py`) showed the cause: several labels
+put **one box around a group** of people or cars, where the detector draws one
+box per object, so no single detection overlapped the group box by IoU 0.5.
+Scoring at IoU 0.3 raised large-object recall from 0.31 to 0.69, confirming it
+was box geometry, not the model.
+
+The Crowds and tight-box rules above already required one tight box per object;
+these labels did not follow them. The rule is restated here so it cannot be
+misread, and the affected frames are re-labelled before any result is used:
+
+> **One tight box per object.** Never one box around a group. Four people
+> walking together are four boxes, not one. Draw each box to the object's
+> visible edges, not loosely around it.
+
+Frames corrected (status: **done, 12 Nov 2026**): group boxes split in
+`manual_000`, `manual_002`, `manual_003`, `manual_006`, `manual_021`, `manual_023`;
+loose boxes tightened in `manual_002`, `manual_005`, `manual_007`, `manual_018`,
+`manual_046`, `manual_052`, `manual_053`, `manual_054`; a missed car added in
+`manual_013`. A final check of all 57 files found no label with two or more
+detected objects inside it. No result from the first labelling is reported.

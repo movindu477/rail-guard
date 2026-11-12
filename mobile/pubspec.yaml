@@ -64,7 +64,8 @@ flutter:
   uses-material-design: true
 
   assets:
-    - assets/map_style.json      # dark map, roads and shops hidden
+    - assets/images/             # logo.jpg (source), logo_mark.png (tool/make_logo_assets.py)
+    - assets/map_style.json      # light map: quiet roads, no shops, station names kept
     - assets/railway_line.json   # Sri Lanka running lines from OpenStreetMap (tool/railway_from_osm.py)
     - assets/train_icon.png      # train marker, nose up (tool/make_assets.py)
     - assets/sounds/             # beep.wav (CAUTION), alarm.wav (STOP)

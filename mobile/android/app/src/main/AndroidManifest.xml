@@ -5,7 +5,7 @@
     <uses-permission android:name="android.permission.VIBRATE" />
 
     <application
-        android:label="railguard_app"
+        android:label="RailGuard"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <!-- Google Maps SDK key, restricted in Google Cloud to this app's package + SHA-1 -->
