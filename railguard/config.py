@@ -43,6 +43,12 @@ class PipelineConfig:
     envelope_factor: float = 1.9    # rolling-stock width / gauge: 3.2 m Sri Lankan stock / 1.676 m
     safety_margin_m: float = 0.5    # clearance added each side of the train envelope
     segment_every: int = 1       # run TEP-Net on every Nth frame, reuse the corridor in between
+    # Track plausibility gate: real rails converge with distance. If the far rail
+    # spacing is not below this fraction of the near spacing, the ego-path is not
+    # the track: the frame is marked track_valid=False and every on-track object's
+    # distance is unknown, so a confirmed object raises BRAKE NOW (fail-safe).
+    track_check: bool = True
+    max_rail_convergence: float = 0.5
 
     # ---- Ranging ----
     calib_file: Optional[str] = None   # .npz from camera/calibration/calibrate.py

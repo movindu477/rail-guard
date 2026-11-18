@@ -70,7 +70,11 @@ class StopAlert extends StatelessWidget {
               ),
               const SizedBox(height: 6),
               Text(
-                warning.headingKnown ? 'AHEAD' : 'DIRECTION UNKNOWN',
+                warning.alongTrack
+                    ? 'ALONG THE LINE'
+                    : (warning.onAnotherLine
+                        ? 'ON ANOTHER LINE'
+                        : (warning.headingKnown ? 'AHEAD' : 'DIRECTION UNKNOWN')),
                 style: white.copyWith(fontSize: 16, fontWeight: FontWeight.w500, letterSpacing: 2),
               ),
               const SizedBox(height: 24),

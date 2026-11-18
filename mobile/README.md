@@ -1,5 +1,7 @@
 # railguard_app
 
+Train conflict display is advisory only and does not replace token working, signalling or interlocking.
+
 A new Flutter project.
 
 ## Getting Started

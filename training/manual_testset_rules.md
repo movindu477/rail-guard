@@ -7,7 +7,14 @@ before the first box was drawn and are not changed during labelling.
 | Set | Folder | Frames | Source |
 |---|---|---|---|
 | Daytime | `data/dataset/testset_manual/` | 57 | day ride, the two validation stretches (86–204 s, 1034–1194 s), one frame every 5 s |
-| Night (E4) | `data/dataset/testset_night/` | 24 | night ride, 0–118 s, one frame every 5 s |
+| Night (E4) | `data/dataset/testset_night/` | 24 | night **cab ride** (YouTube `-fM6i43dgNw`, see `SOURCES.md`), 5–449 s, one frame every 19.3 s across the whole ride |
+
+**Night set re-extracted (12 Nov 2026), before any labelling.** The first night
+set came from a ride filmed through a side door, not from the cab, so it mixed
+viewpoint with illumination; its source video has since been overwritten. It is
+kept, unlabelled, in `data/dataset/testset_night_old_sidedoor/` and is not used.
+The new set is spread across the whole ride so stations, level crossings and
+open track are all represented.
 
 Each folder has `provenance.csv` (source video and timestamp of every frame).
 

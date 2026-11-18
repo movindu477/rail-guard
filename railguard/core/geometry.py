@@ -57,6 +57,32 @@ def _track_by_row(egopath, h):
     return centre, width
 
 
+MAX_RAIL_CONVERGENCE = 0.5   # far / near rail spacing must be below this for a real track
+
+
+def rail_convergence(width_by_row):
+    """Far rail spacing / near rail spacing (top-most over bottom-most known row),
+    or None when there is no track.
+
+    Perspective makes real rails get closer with distance, so a real track gives
+    a value well below 1 (0.02-0.4 on the cab-ride footage). TEP-Net always
+    returns two rails, even when it cannot see the track; a path whose rails stay
+    apart or spread out (>= MAX_RAIL_CONVERGENCE) cannot be the track.
+    """
+    rows = np.flatnonzero(width_by_row > 0)
+    if rows.size < 2:
+        return None
+    near = float(width_by_row[rows[-1]])
+    return float(width_by_row[rows[0]]) / near if near > 0 else None
+
+
+def track_plausible(width_by_row, max_convergence=MAX_RAIL_CONVERGENCE):
+    """True if the ego-path is a perspective-correct track. Necessary, not
+    sufficient: it rejects impossible shapes but cannot prove the rails are real."""
+    c = rail_convergence(width_by_row)
+    return c is not None and c < max_convergence
+
+
 def rail_width_by_row(egopath, h):
     """Pixel distance between the rails at every image row (0 where unknown)."""
     return _track_by_row(egopath, h)[1]

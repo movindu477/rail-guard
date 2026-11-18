@@ -1,0 +1,4 @@
+clip,file,frames,flagged,pct_flagged,of_which_no_track,gate
+day,test2min.mp4,3600,0,0.0,0,far/near rail spacing >= 0.5
+night,srilanka_night_full.mp4,13652,12,0.1,0,far/near rail spacing >= 0.5
+sidedoor,night5min.mp4,3363,1973,58.7,0,far/near rail spacing >= 0.5

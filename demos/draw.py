@@ -6,6 +6,7 @@ from railguard.core.alerts import BRAKE_NOW, CAUTION
 
 # BGR
 CORRIDOR = (0, 180, 0)
+CORRIDOR_BAD = (0, 0, 200)  # corridor from a track that failed the plausibility gate
 ON_TRACK = (0, 140, 255)    # orange
 OFF_TRACK = (160, 160, 160)
 UNKNOWN = (0, 0, 255)       # red: on the track, distance unknown
@@ -29,7 +30,7 @@ def draw(frame, res, calibrated, persist=3):
 
     if res.corridor_polygon is not None:
         overlay = frame.copy()
-        cv2.fillPoly(overlay, [res.corridor_polygon], CORRIDOR)
+        cv2.fillPoly(overlay, [res.corridor_polygon], CORRIDOR if res.track_valid else CORRIDOR_BAD)
         cv2.addWeighted(overlay, 0.25, frame, 0.75, 0, dst=frame)
 
     # On-track last and confirmed last of all, so their labels sit on top.
@@ -55,6 +56,16 @@ def draw(frame, res, calibrated, persist=3):
         cv2.putText(frame, f"{res.alert}: {worst.cls_name} on track, {dist}",
                     (int(25 * s), int(55 * s)), FONT, 1.5 * s, (255, 255, 255),
                     max(2, int(4 * s)), cv2.LINE_AA)
+
+    if not res.track_valid:
+        # Never show a confident wrong corridor: say the track is not seen.
+        y0 = int(80 * s) if res.alert is not None else 0
+        cv2.rectangle(frame, (0, y0), (w, y0 + int(56 * s)), (0, 0, 0), -1)
+        why = ("no track found" if res.rail_convergence is None
+               else f"rails do not converge ({res.rail_convergence:.2f})")
+        cv2.putText(frame, f"TRACK NOT DETECTED: {why}. Corridor unreliable, distances unknown",
+                    (int(25 * s), y0 + int(38 * s)), FONT, 0.9 * s, (0, 200, 255),
+                    max(1, int(2 * s)), cv2.LINE_AA)
 
     note = "distances: calibrated" if calibrated else "distances: ASSUMED focal length (uncalibrated)"
     put_label(frame, note, int(15 * s), h - int(15 * s), (255, 255, 255), 0.8 * s, max(1, int(2 * s)))

@@ -56,3 +56,17 @@ PipelineConfig(camera_pitch_deg=-1.0, camera_height_m=1.805)   # measured values
 `PipelineConfig.distance_margin` (default 0.10) makes the alert treat every object as that much closer than measured: the braking comparison uses `distance × (1 − margin)`; displayed distances are unchanged. An object whose distance is over-read by less than the margin still triggers BRAKE NOW in time.
 
 The worst over-read measured in the simulation (`experiments/e2_distance/distance_accuracy.py`, 5,808 readings over every render) is **+7.2%** (wide, 3° down, straight track, 0–50 m). With a 5% margin, 32 readings were still further than the truth; with 10%, **none are**, for every mounting. The margin sits above 7.2% rather than at it because 7.2% is the worst case of clean single-track renders, not of real footage: real ELP video adds lens distortion, calibration error in fx, vibration and track wear, none of which the simulation contains. At 400 m braking distance, 10% means alerting from about 444 m measured instead of 400 m.
+
+### Track plausibility gate
+
+TEP-Net always returns two rails, even when it cannot see the track: on the telephoto lens on tight curves, and on footage filmed from a side door, it produced a confident but false ego-path with no sign that it had failed. Real rails converge with distance, so the pipeline checks every ego-path: if the far rail spacing is not below half the near spacing (`PipelineConfig.max_rail_convergence`, default 0.5), the frame is marked `track_valid = False`. The corridor is then treated as unreliable and every on-track object's distance is reported as **unknown**, so a confirmed object raises BRAKE NOW (the existing fail-safe). The demos tint the corridor red and show **TRACK NOT DETECTED**. It only moves alerts in the safe direction, and `track_check=False` turns it off.
+
+Frames flagged (`experiments/e4_illumination/track_gate.py`):
+
+| Clip | Frames | Flagged |
+|---|---|---|
+| Day cab ride | 3,600 | **0.0%** |
+| Night cab ride (headlight-lit) | 13,652 | **0.1%** |
+| Night, filmed from a side door | 3,363 | **58.7%** |
+
+Invisible on footage the track detector handles, loud on footage it does not. Limitations: the gate checks the *shape* of the path, so it cannot catch a false path that happens to converge (the side-door frames that pass are still not the real track), and while it fires the corridor still decides which objects are on the track, so an object outside a wrong corridor is not caught. Both clips are from unknown cameras (`SOURCES.md`), so these are track results only, not distances.

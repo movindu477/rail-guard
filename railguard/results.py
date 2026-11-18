@@ -30,6 +30,11 @@ class FrameResult:
     width_by_row: np.ndarray                # rail spacing in px at each image row (0 = unknown)
     detections: list                        # every Detection, on-track or not
     alert: Optional[str]                    # None, alerts.CAUTION or alerts.BRAKE_NOW (confirmed threats only)
+    # False when the ego-path failed the plausibility gate (rails do not converge)
+    # or no track was found: the corridor is unreliable and on-track distances are
+    # reported as unknown, so a confirmed threat is BRAKE NOW.
+    track_valid: bool = True
+    rail_convergence: Optional[float] = None  # far / near rail spacing; None = no track
 
     @property
     def threats(self):

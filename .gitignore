@@ -18,6 +18,8 @@ outputs/evaluation/*
 !outputs/evaluation/railway_val_yolov8m.csv
 !outputs/evaluation/e1_corridor.csv
 !outputs/evaluation/e2_distance.csv
+!outputs/evaluation/e4_illumination.csv
+!outputs/evaluation/e4_track_gate.csv
 outputs/videos/
 build/
 *.mp4

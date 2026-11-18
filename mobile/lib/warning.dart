@@ -8,9 +8,8 @@ library;
 
 import 'dart:math';
 
-/// Mean Earth radius (IUGG), metres. A sphere is within ~0.1% of the WGS84
-/// ellipsoid at Sri Lankan latitudes: about 1 m over 2 km.
-const double earthRadiusM = 6371008.8;
+import 'track.dart';
+export 'track.dart';
 
 /// Hazards this far ahead or nearer are shown.
 const double warnRangeM = 3000;
@@ -113,15 +112,33 @@ class HazardWarning {
   final Hazard hazard;
   final double distanceM;
   final bool headingKnown; // false: shown on distance alone, direction not checked
+  final bool alongTrack; // true if distance was measured along the railway line
+  final bool onAnotherLine; // true if hazard snapped to a different route
+  final AlertLevel? overrideLevel;
 
-  const HazardWarning(this.hazard, this.distanceM, this.headingKnown);
+  const HazardWarning(
+    this.hazard,
+    this.distanceM,
+    this.headingKnown, {
+    this.alongTrack = false,
+    this.onAnotherLine = false,
+    this.overrideLevel,
+  });
 
-  AlertLevel get level => alertLevel(distanceM, blocked: hazard.blocked);
+  AlertLevel get level => overrideLevel ?? alertLevel(distanceM, blocked: hazard.blocked);
 
-  /// e.g. "ANIMAL — 1.8 km ahead", or "ANIMAL — 1.8 km (direction unknown)".
-  String get message =>
-      '${hazard.objectType.toUpperCase()} — ${formatDistance(distanceM)}'
-      '${headingKnown ? ' ahead' : ' (direction unknown)'}';
+  /// e.g. "ANIMAL — 1.8 km along the line", or "ANIMAL — 1.8 km ahead", or "ANIMAL — 1.8 km (on another line)".
+  String get message {
+    final distStr = formatDistance(distanceM);
+    if (onAnotherLine) {
+      return '${hazard.objectType.toUpperCase()} — $distStr (on another line)';
+    }
+    if (alongTrack) {
+      return '${hazard.objectType.toUpperCase()} — $distStr along the line';
+    }
+    return '${hazard.objectType.toUpperCase()} — $distStr'
+        '${headingKnown ? ' ahead' : ' (direction unknown)'}';
+  }
 }
 
 /// "850 m" below a kilometre, "1.8 km" above.
@@ -130,21 +147,190 @@ String formatDistance(double m) =>
 
 /// Every hazard within [warnRangeM], ahead (or heading unknown) and not older
 /// than [hazardMaxAge], most urgent first (highest level, then nearest).
+///
+/// When [network] is null, falls back byte-identically to the bearing and
+/// haversine straight-line method.
 List<HazardWarning> hazardsAhead({
   required double lat,
   required double lon,
   required double? headingDeg,
   required Iterable<Hazard> hazards,
   required DateTime now,
+  RailNetwork? network,
+  TravelDirection? travelDirection,
+  double? gpsAccuracyM,
 }) {
+  // If no network is provided, behave exactly as before (regression requirement).
+  if (network == null) {
+    final out = <HazardWarning>[];
+    for (final h in hazards) {
+      if (h.time != null && now.difference(h.time!) > hazardMaxAge) continue;
+      final d = distanceM(lat, lon, h.latitude, h.longitude);
+      if (d > warnRangeM) continue;
+      if (!isAhead(bearingDeg(lat, lon, h.latitude, h.longitude), headingDeg)) continue;
+      out.add(HazardWarning(h, d, headingDeg != null));
+    }
+    out.sort(
+      (a, b) => a.level != b.level
+          ? b.level.index.compareTo(a.level.index)
+          : a.distanceM.compareTo(b.distanceM),
+    );
+    return out;
+  }
+
+  // Snap the train. If train snap fails or offset > max(15.0, gpsAccuracyM), along-track cannot
+  // be used confidently: fall back to bearing & haversine for everything.
+  final trainPos = network.snap(lat, lon, gpsAccuracyM: gpsAccuracyM);
+  final isTrainConfident =
+      trainPos != null && trainPos.offsetM <= max(15.0, gpsAccuracyM ?? 15.0);
+  if (!isTrainConfident) {
+    final out = <HazardWarning>[];
+    for (final h in hazards) {
+      if (h.time != null && now.difference(h.time!) > hazardMaxAge) continue;
+      final d = distanceM(lat, lon, h.latitude, h.longitude);
+      if (d > warnRangeM) continue;
+      if (!isAhead(bearingDeg(lat, lon, h.latitude, h.longitude), headingDeg)) continue;
+      out.add(HazardWarning(h, d, headingDeg != null, alongTrack: false));
+    }
+    out.sort(
+      (a, b) => a.level != b.level
+          ? b.level.index.compareTo(a.level.index)
+          : a.distanceM.compareTo(b.distanceM),
+    );
+    return out;
+  }
+
+  // Work out travel direction along the route if not provided
+  final dir = travelDirection ??
+      network.travelDirectionFromHeading(
+        position: trainPos,
+        headingDeg: headingDeg,
+      );
+
   final out = <HazardWarning>[];
+
   for (final h in hazards) {
     if (h.time != null && now.difference(h.time!) > hazardMaxAge) continue;
-    final d = distanceM(lat, lon, h.latitude, h.longitude);
-    if (d > warnRangeM) continue;
-    if (!isAhead(bearingDeg(lat, lon, h.latitude, h.longitude), headingDeg)) continue;
-    out.add(HazardWarning(h, d, headingDeg != null));
+
+    // Calculate baseline straight-line bearing and haversine outcome
+    final straightD = distanceM(lat, lon, h.latitude, h.longitude);
+    final oldBearing = bearingDeg(lat, lon, h.latitude, h.longitude);
+    final oldAhead = isAhead(oldBearing, headingDeg);
+    final oldLevel = (straightD <= warnRangeM && oldAhead)
+        ? alertLevel(straightD, blocked: h.blocked)
+        : AlertLevel.none;
+
+    // Snap the hazard to the railway network
+    final hazardPos = network.snap(h.latitude, h.longitude);
+    final isHazardConfident = hazardPos != null && hazardPos.offsetM <= 15.0;
+
+    // Confident means: train and hazard candidate sets overlap, both within tolerance.
+    final sharedRoutes = (hazardPos != null && isHazardConfident)
+        ? trainPos.candidateRouteIds.intersection(hazardPos.candidateRouteIds)
+        : <String>{};
+    final isConfident = sharedRoutes.isNotEmpty;
+
+    if (isConfident) {
+      // Find candidate on the shared route that gives the shortest distance
+      double? bestDiff;
+      double minAbs = double.infinity;
+      String? chosenRoute;
+
+      for (final rId in sharedRoutes) {
+        final tCand = trainPos.candidateForRoute(rId);
+        final hCand = hazardPos!.candidateForRoute(rId);
+        if (tCand != null && hCand != null) {
+          final diff = hCand.chainageM - tCand.chainageM;
+          if (diff.abs() < minAbs) {
+            minAbs = diff.abs();
+            bestDiff = diff;
+            chosenRoute = rId;
+          }
+        }
+      }
+
+      final diff = bestDiff!;
+      final alongD = diff.abs();
+
+      var routeDir = dir;
+      if (chosenRoute != null && chosenRoute != trainPos.routeId) {
+        final tCand = trainPos.candidateForRoute(chosenRoute);
+        if (tCand != null && headingDeg != null) {
+          routeDir = network.travelDirectionFromHeading(
+            position: tCand,
+            headingDeg: headingDeg,
+          );
+        }
+      }
+
+      final bool isAheadOnTrack;
+      if (routeDir == TravelDirection.increasing) {
+        isAheadOnTrack = diff > 0;
+      } else if (routeDir == TravelDirection.decreasing) {
+        isAheadOnTrack = diff < 0;
+      } else {
+        // Travel direction unknown (standing or slow) -> every hazard on route counts as ahead
+        isAheadOnTrack = true;
+      }
+
+      if (isAheadOnTrack && alongD <= warnRangeM) {
+        // In the confident path, alertLevel() runs on along-track distance with NO override.
+        final level = alertLevel(alongD, blocked: h.blocked);
+        if (level != AlertLevel.none) {
+          out.add(HazardWarning(
+            h,
+            alongD,
+            routeDir != TravelDirection.unknown,
+            alongTrack: true,
+          ));
+        }
+      }
+      // If not ahead on track or beyond warnRangeM, hazard is not alerted.
+      continue;
+    }
+
+    // Fallback path: along-track was not used (offsets too large, snap failed, or disjoint candidate sets).
+    // Keep the never-quieter clamp only where along-track was not used.
+    if (hazardPos != null && !trainPos.sharesLineWith(hazardPos)) {
+      // Hazard candidate set is disjoint from train's -> downgrade to INFO and label "on another line"
+      if (straightD <= warnRangeM || oldLevel == AlertLevel.stop || oldLevel == AlertLevel.caution) {
+        var level = AlertLevel.info;
+        if (oldLevel == AlertLevel.stop) {
+          level = AlertLevel.stop;
+        } else if (oldLevel == AlertLevel.caution) {
+          level = AlertLevel.caution;
+        }
+        out.add(HazardWarning(
+          h,
+          straightD,
+          headingDeg != null,
+          alongTrack: false,
+          onAnotherLine: true,
+          overrideLevel: level,
+        ));
+      }
+    } else {
+      // Hazard snap failed or hazard offset > 15 m.
+      // The old straight-line behaviour and clamp both stand.
+      if (straightD <= warnRangeM && oldAhead) {
+        out.add(HazardWarning(
+          h,
+          straightD,
+          headingDeg != null,
+          alongTrack: false,
+        ));
+      } else if (oldLevel == AlertLevel.stop || oldLevel == AlertLevel.caution) {
+        out.add(HazardWarning(
+          h,
+          straightD,
+          headingDeg != null,
+          alongTrack: false,
+          overrideLevel: oldLevel,
+        ));
+      }
+    }
   }
+
   out.sort(
     (a, b) => a.level != b.level
         ? b.level.index.compareTo(a.level.index)
@@ -161,8 +347,18 @@ HazardWarning? closestHazardAhead({
   required double? headingDeg,
   required Iterable<Hazard> hazards,
   required DateTime now,
+  RailNetwork? network,
+  TravelDirection? travelDirection,
 }) {
-  final all = hazardsAhead(lat: lat, lon: lon, headingDeg: headingDeg, hazards: hazards, now: now);
+  final all = hazardsAhead(
+    lat: lat,
+    lon: lon,
+    headingDeg: headingDeg,
+    hazards: hazards,
+    now: now,
+    network: network,
+    travelDirection: travelDirection,
+  );
   if (all.isEmpty) return null;
   return all.reduce((a, b) => b.distanceM < a.distanceM ? b : a);
 }

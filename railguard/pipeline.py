@@ -12,7 +12,7 @@ from .core.alerts import alert_level
 from .core.corridor import corridor_polygon, foot_point, in_corridor, polygon_mask
 from .core.distance import estimate_distance_m
 from .core.tracking import PersistenceTracker
-from .core.geometry import rail_width_by_row
+from .core.geometry import rail_convergence, rail_width_by_row
 from .detection.classes import class_ids
 from .detection.model import load_yolo
 from .results import Detection, FrameResult
@@ -27,7 +27,7 @@ class RailGuardPipeline:
         self.tepnet = load_tepnet(config.tepnet_model, config.tepnet_device or config.device)
         self._frame_idx = 0
         self._last_egopath = None
-        self._track = None   # (polygon, corridor mask, width_by_row) for _last_egopath
+        self._track = None   # (polygon, corridor mask, width_by_row, convergence, valid)
         self._persistence = PersistenceTracker(max_age=config.track_max_age)
 
     def _update_track(self, frame):
@@ -37,7 +37,14 @@ class RailGuardPipeline:
         egopath = self.tepnet.detect(rgb)
         polygon = corridor_polygon(egopath, frame.shape, self.config.corridor_half_width_m())
         self._last_egopath = egopath
-        self._track = (polygon, polygon_mask(polygon, frame.shape), rail_width_by_row(egopath, h))
+        widths = rail_width_by_row(egopath, h)
+        # Plausibility gate: TEP-Net always returns two rails, even when it cannot
+        # see the track. Real rails converge with distance; if these do not, the
+        # path is not the track. (No track at all is invalid too.)
+        conv = rail_convergence(widths)
+        valid = conv is not None and (not self.config.track_check
+                                      or conv < self.config.max_rail_convergence)
+        self._track = (polygon, polygon_mask(polygon, frame.shape), widths, conv, valid)
 
     def process_frame(self, frame) -> FrameResult:
         cfg = self.config
@@ -47,7 +54,7 @@ class RailGuardPipeline:
         # segment_every-th frame; the frames in between reuse its corridor.
         if self._track is None or self._frame_idx % cfg.segment_every == 0:
             self._update_track(frame)
-        polygon, corridor, width_by_row = self._track
+        polygon, corridor, width_by_row, convergence, track_valid = self._track
 
         # 4. Detection, hazard classes only.
         result = self.model.predict(frame, conf=cfg.conf_threshold, imgsz=cfg.imgsz,
@@ -61,9 +68,11 @@ class RailGuardPipeline:
             x1, y1, x2, y2 = map(int, box.xyxy[0])
             gx, gy = foot_point(x1, y1, x2, y2)
             on_track = in_corridor(corridor, gx, gy)
-            # ground distance along the track (pitch-corrected), which is what braking distance is measured in
+            # ground distance along the track (pitch-corrected), which is what braking
+            # distance is measured in. Unknown when the track failed the gate: a
+            # confirmed object then raises BRAKE NOW (fail-safe).
             distance = (estimate_distance_m(gy, width_by_row, fx, cfg.camera_pitch_deg, cfg.camera_height_m)
-                        if on_track else None)
+                        if on_track and track_valid else None)
             found.append(((x1, y1, x2, y2), self.model.names[int(box.cls[0])],
                           float(box.conf[0]), on_track, distance))
 
@@ -92,4 +101,6 @@ class RailGuardPipeline:
             corridor=corridor,
             width_by_row=width_by_row,
             detections=detections,
-            alert=alert)
+            alert=alert,
+            track_valid=track_valid,
+            rail_convergence=convergence)

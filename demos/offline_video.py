@@ -66,6 +66,7 @@ def main():
     out = cv2.VideoWriter(args.output, cv2.VideoWriter_fourcc(*"mp4v"), fps, (w, h))
 
     class_counts, alert_counts = Counter(), Counter()
+    bad_track = 0   # frames whose track failed the plausibility gate
     n, t0 = 0, time.time()
     while n < total:
         ok, frame = cap.read()
@@ -74,6 +75,7 @@ def main():
         res = pipeline.process_frame(frame)
         class_counts.update(d.cls_name for d in res.detections)
         alert_counts[res.alert] += 1
+        bad_track += not res.track_valid
         if publisher:
             publisher.on_frame(res)
         draw(frame, res, calibrated=args.calib is not None, persist=config.persist_frames)
@@ -91,6 +93,7 @@ def main():
     print(f"Done: {n} frames in {time.time() - t0:.0f} s -> {args.output}")
     print(f"Detections by class: {dict(class_counts)}")
     print(f"Frames by alert: { {k or 'none': v for k, v in alert_counts.items()} }")
+    print(f"Frames with TRACK NOT DETECTED (plausibility gate): {bad_track} of {n}")
 
 
 if __name__ == "__main__":

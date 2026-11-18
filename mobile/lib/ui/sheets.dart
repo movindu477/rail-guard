@@ -2,9 +2,13 @@
 //   showReportSheet   - what is it (4 types), then how bad (2 severities): two taps
 //   showHazardList    - active hazards as a timeline, most urgent first
 //   showHazardDetail  - everything about one hazard, with "Mark as cleared"
+//   showTrainList     - other trains on the line, nearest first
+//   showTrainDetail   - driver, train number, service, speed, age and distance
 
 import 'package:flutter/material.dart';
 
+import '../driver.dart';
+import '../trains.dart';
 import '../warning.dart';
 import 'theme.dart';
 
@@ -195,7 +199,14 @@ class HazardRow {
   final Hazard hazard;
   final double? distanceM;
   final bool? ahead; // null: heading unknown
-  const HazardRow(this.hazard, this.distanceM, this.ahead);
+  final bool alongTrack;
+
+  const HazardRow(
+    this.hazard,
+    this.distanceM,
+    this.ahead, {
+    this.alongTrack = false,
+  });
 
   /// Alert level this hazard is at for this train (none if behind or no GPS).
   AlertLevel get level => distanceM == null || ahead == false
@@ -208,15 +219,15 @@ class HazardRow {
   String get direction => distanceM == null
       ? 'Distance unknown (no GPS)'
       : ahead == null
-      ? 'Direction unknown (not moving)'
-      : (ahead! ? 'Ahead' : 'Behind');
+      ? (alongTrack ? 'Along the line (direction unknown)' : 'Direction unknown (not moving)')
+      : (ahead! ? (alongTrack ? 'Ahead along the line' : 'Ahead') : 'Behind');
 
-  /// One line: "1.8 km ahead", "5 m, direction unknown".
+  /// One line: "1.8 km along the line", "1.8 km ahead", "5 m, direction unknown".
   String get where => distanceM == null
       ? direction
-      : ahead == null
-      ? '$distance, direction unknown'
-      : '$distance ${ahead! ? 'ahead' : 'behind'}';
+      : alongTrack
+      ? '$distance along the line${ahead == null ? '' : (ahead! ? '' : ' (behind)')}'
+      : (ahead == null ? '$distance, direction unknown' : '$distance ${ahead! ? 'ahead' : 'behind'}');
 }
 
 /// Timeline of active hazards. Returns the one tapped, or null.
@@ -412,4 +423,310 @@ Future<bool> showHazardDetail(BuildContext context, {required HazardRow row}) as
     ),
   );
   return cleared ?? false;
+}
+
+/// Details of another train on the line when its marker or list row is tapped.
+Future<void> showTrainDetail(
+  BuildContext context, {
+  required OtherTrain train,
+  required double? distanceM,
+  double? alongTrackM,
+  TrainConflictInfo? conflictInfo,
+}) {
+  final now = DateTime.now();
+  final live = train.isLive(now);
+  final isApproaching = conflictInfo?.conflict == TrainConflict.approaching;
+  final isOtherLine = conflictInfo?.conflict == TrainConflict.otherLine;
+  final colour = isApproaching ? const Color(0xFF5E35B1) : (live ? RG.blue : RG.info);
+  final kmh = train.speedKmh;
+  final distText = isOtherLine
+      ? (distanceM == null
+          ? 'Distance unknown (other line)'
+          : '${formatDistance(distanceM)} (other line)')
+      : (alongTrackM != null
+          ? '${formatDistance(alongTrackM)} along the line from your train'
+          : (distanceM == null
+              ? 'Distance unknown (no GPS)'
+              : '${formatDistance(distanceM)} (straight-line) from your train'));
+  return _sheet<void>(
+    context,
+    (ctx) => SingleChildScrollView(
+      padding: const EdgeInsets.only(bottom: 18),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const _Header('Close', 'Train on the line'),
+          if (isApproaching) ...[
+            Container(
+              margin: const EdgeInsets.fromLTRB(20, 10, 20, 4),
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: const Color(0xFFEDE7F6),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: const Color(0xFF7E57C2), width: 1.5),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.warning_amber_rounded, color: Color(0xFF512DA8), size: 22),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'TRAIN CONFLICT ADVISORY',
+                          style: TS.title.copyWith(
+                            color: const Color(0xFF311B92),
+                            fontSize: 13,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                      ),
+                      if (conflictInfo!.isDirectionUnknown)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF512DA8).withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: const Text(
+                            'direction unknown',
+                            style: TextStyle(
+                              color: Color(0xFF311B92),
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Opposing train approaching on your line',
+                    style: TS.bodyStrong.copyWith(color: const Color(0xFF311B92), fontSize: 13),
+                  ),
+                  const SizedBox(height: 8),
+                  _conflictDetailRow(
+                    'Along-track gap',
+                    formatDistance(conflictInfo.alongTrackGapM ?? alongTrackM ?? 0),
+                  ),
+                  _conflictDetailRow(
+                    'Closing speed',
+                    conflictInfo.closingSpeedKmh == null
+                        ? 'unknown'
+                        : '${conflictInfo.closingSpeedKmh} km/h',
+                  ),
+                  _conflictDetailRow('Estimated time to meet', conflictInfo.timeToMeetText),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Train conflict display is advisory only and does not replace token working, signalling or interlocking.',
+                    style: TS.small.copyWith(
+                      color: const Color(0xFF512DA8),
+                      fontSize: 11,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          const SizedBox(height: 12),
+          iconCircle(Icons.train_rounded, colour, size: 68, filled: true),
+          const SizedBox(height: 10),
+          Text(
+            train.trainNo.isEmpty ? train.unitId : 'Train ${train.trainNo}',
+            style: TS.title.copyWith(fontSize: 18),
+          ),
+          const SizedBox(height: 6),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+            decoration: BoxDecoration(
+              color: colour.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  train.service == Service.up ? Icons.north_east : Icons.south_west,
+                  size: 15,
+                  color: colour,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  '${train.service.short}  ·  ${train.service.label}',
+                  style: TS.small.copyWith(color: colour),
+                ),
+              ],
+            ),
+          ),
+          Container(
+            margin: const EdgeInsets.fromLTRB(20, 16, 20, 4),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+            decoration: BoxDecoration(
+              color: RG.surfaceHigh,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Column(
+              children: [
+                _fact(
+                  Icons.person_rounded,
+                  train.driverName.isEmpty ? 'Driver not given' : train.driverName,
+                ),
+                _fact(
+                  Icons.confirmation_number_outlined,
+                  'Train ${train.trainNo.isEmpty ? '—' : train.trainNo}  ·  ${train.unitId}',
+                ),
+                _fact(
+                  train.service == Service.up ? Icons.north_east : Icons.south_west,
+                  'Direction: ${train.service.short} (${train.service.label})',
+                ),
+                _fact(
+                  Icons.speed_rounded,
+                  kmh == null ? 'Speed unknown' : '$kmh km/h',
+                ),
+                _fact(
+                  Icons.schedule_rounded,
+                  '${trainUpdatedAgo(train.lastSeen, now)}${live ? '' : '  ·  stale'}',
+                  colour: live ? RG.text : RG.textDim,
+                ),
+                _fact(Icons.straighten_rounded, distText),
+              ],
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+Widget _conflictDetailRow(String label, String value) => Padding(
+  padding: const EdgeInsets.symmetric(vertical: 2),
+  child: Row(
+    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    children: [
+      Text(label, style: const TextStyle(color: Color(0xFF4527A0), fontSize: 12)),
+      Text(
+        value,
+        style: const TextStyle(
+          color: Color(0xFF311B92),
+          fontSize: 12,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    ],
+  ),
+);
+
+/// Lists active trains on the line, nearest first. Returns the one tapped, or null.
+Future<OtherTrain?> showTrainList(
+  BuildContext context, {
+  required List<OtherTrain> trains,
+  required double? fromLat,
+  required double? fromLon,
+  Map<String, double>? alongTrackDistances,
+  Map<String, TrainConflictInfo>? conflicts,
+}) {
+  final now = DateTime.now();
+  return _sheet<OtherTrain>(
+    context,
+    (ctx) => Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const _Header('Close', 'Trains on the line'),
+        if (trains.isEmpty)
+          const Padding(
+            padding: EdgeInsets.fromLTRB(24, 24, 24, 36),
+            child: Text('No other trains active in the last 5 minutes.', style: TS.body),
+          )
+        else
+          Flexible(
+            child: ListView.separated(
+              shrinkWrap: true,
+              padding: const EdgeInsets.fromLTRB(20, 10, 20, 18),
+              itemCount: trains.length,
+              separatorBuilder: (_, _) => const Divider(height: 1, color: RG.border),
+              itemBuilder: (_, i) {
+                final t = trains[i];
+                final live = t.isLive(now);
+                final conflict = conflicts?[t.unitId];
+                final isApproaching = conflict?.conflict == TrainConflict.approaching;
+                final isOtherLine = conflict?.conflict == TrainConflict.otherLine;
+                final alongDist = alongTrackDistances?[t.unitId];
+                final dist = t.distanceFrom(fromLat, fromLon);
+
+                String distLabel;
+                if (isOtherLine) {
+                  distLabel = dist == null ? 'other line' : '${formatDistance(dist)} (other line)';
+                } else if (alongDist != null) {
+                  distLabel = '${formatDistance(alongDist)} along line';
+                } else {
+                  distLabel = dist == null ? '? away' : formatDistance(dist);
+                }
+
+                final kmh = t.speedKmh;
+                final speedLabel = kmh == null ? '' : '  ·  $kmh km/h';
+                final driverLabel = t.driverName.isEmpty ? t.unitId : '${t.driverName} (${t.unitId})';
+                final circleColor = isApproaching
+                    ? const Color(0xFF5E35B1)
+                    : (live ? RG.blue : RG.info);
+
+                return InkWell(
+                  onTap: () => Navigator.pop(ctx, t),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    child: Row(
+                      children: [
+                        iconCircle(
+                          Icons.train_rounded,
+                          circleColor,
+                          size: 42,
+                          filled: live,
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('${t.trainLabel}  ·  $distLabel$speedLabel', style: TS.bodyStrong),
+                              if (isApproaching)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 2, bottom: 2),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFEDE7F6),
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: Text(
+                                      'APPROACHING · ${formatDistance(conflict!.alongTrackGapM ?? 0)} · ${conflict.timeToMeetText}'
+                                      '${conflict.isDirectionUnknown ? ' (dir unknown)' : ''}',
+                                      style: const TextStyle(
+                                        color: Color(0xFF4A148C),
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              Text(driverLabel, style: TS.small),
+                              Text(
+                                '${trainUpdatedAgo(t.lastSeen, now)}${live ? '' : '  ·  stale'}',
+                                style: TS.small,
+                              ),
+                            ],
+                          ),
+                        ),
+                        const Icon(Icons.chevron_right_rounded, color: RG.textDim, size: 22),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+      ],
+    ),
+  );
 }

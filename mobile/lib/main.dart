@@ -10,52 +10,105 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import 'alarm.dart';
-import 'firebase_options.dart';
+import 'driver.dart';
 import 'railway.dart';
 import 'sim.dart';
+import 'trains.dart';
+import 'ui/login.dart';
 import 'ui/markers.dart';
+import 'ui/register.dart';
 import 'ui/sheets.dart';
+import 'ui/splash.dart';
 import 'ui/stop_alert.dart';
 import 'ui/theme.dart';
 import 'warning.dart';
 
-Future<void> main() async {
-  // Must run before any plugin call, or the app crashes on launch.
+void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   runApp(const RailGuardApp());
 }
 
-class RailGuardApp extends StatelessWidget {
+class RailGuardApp extends StatefulWidget {
   const RailGuardApp({super.key});
+  @override
+  State<RailGuardApp> createState() => _RailGuardAppState();
+}
+
+class _RailGuardAppState extends State<RailGuardApp> {
+  SplashRoute? _route;
+
+  void _onSignOut() {
+    setState(() {
+      _signedIn = null;
+      _route = SplashRoute.login;
+    });
+  }
+
   @override
   Widget build(BuildContext context) => MaterialApp(
     title: 'RailGuard',
     debugShowCheckedModeBanner: false,
     theme: railGuardTheme(),
-    home: const HomeScreen(),
+    home: switch (_route) {
+      null => SplashScreen(
+          onReady: (route, p) => setState(() {
+            _signedIn = p;
+            _route = route;
+          }),
+        ),
+      SplashRoute.login => LoginScreen(
+          onLoggedIn: (p) => setState(() {
+            _signedIn = p;
+            _route = SplashRoute.map;
+          }),
+          onGoToRegister: () => setState(() => _route = SplashRoute.register),
+        ),
+      SplashRoute.register => RegisterScreen(
+          existing: _signedIn,
+          onDone: (p) => setState(() {
+            _signedIn = p;
+            _route = SplashRoute.map;
+          }),
+          onBackToLogin: () => setState(() => _route = SplashRoute.login),
+        ),
+      SplashRoute.map => HomeScreen(
+          key: ValueKey(_signedIn?.unitId ?? defaultUnitId),
+          onSignOut: _onSignOut,
+        ),
+    },
   );
 }
 
 const _colombo = LatLng(6.9271, 79.8612);
 
+/// The driver signed on to this phone, set in main() before the app starts
+/// and replaced when the driver re-registers. Null only before registration,
+/// which is the one screen that runs without it.
+DriverProfile? _signedIn;
+
+/// The signed-on driver. Falls back to an unnamed profile on the build-time
+/// unit id so nothing can crash if a widget outlives registration.
+DriverProfile get driver =>
+    _signedIn ??
+    const DriverProfile(unitId: defaultUnitId, driverName: '', driverId: '', trainNo: '');
+
 /// This phone's train unit. The laptop's hazard publisher reads
 /// `train_position/{unitId}` to place automatic hazards, so both must match:
-/// flutter run --dart-define=RAILGUARD_UNIT=unit-02 / publisher --unit unit-02.
-const unitId = String.fromEnvironment('RAILGUARD_UNIT', defaultValue: 'unit-01');
+/// the unit id typed at registration / publisher --unit unit-02.
+String get unitId => driver.unitId;
 
 /// How often the train position is sent to Firestore.
 const positionUploadInterval = Duration(seconds: 5);
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  final VoidCallback? onSignOut;
+  const HomeScreen({super.key, this.onSignOut});
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
@@ -83,10 +136,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Timer? _clock; // refreshes "updated ... ago" once a second
   bool _saving = false;
 
+  // Other trains on the line (map presence only; never feeds into alerting)
+  List<OtherTrain> _trains = [];
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _trainSub;
+  String? _trainProblem; // Firestore read error on train_position, if any
+
   // Map
   GoogleMapController? _map;
   String? _mapStyle;
   Set<Polyline> _rail = {};
+  RailNetwork? _railNetwork;
+  TrackPosition? _prevTrackPos;
+  TravelDirection _travelDir = TravelDirection.unknown;
   bool _follow = true; // keep the train in view
   bool _centred = false; // camera moved to the first fix yet
   final Map<String, BitmapDescriptor> _icons = {};
@@ -109,6 +170,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     _alarm.init();
     _startHazards();
+    _startTrains();
     _loadMap();
     if (simMode) {
       _startSim();
@@ -143,6 +205,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _gpsSub?.cancel();
     _sim?.stop();
     _hazardSub?.cancel();
+    _trainSub?.cancel();
     _recheck?.cancel();
     _positionUpload?.cancel();
     _clock?.cancel();
@@ -228,8 +291,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   /// One document per unit, overwritten: where this train is now, for the
-  /// laptop to place the hazards its camera finds. Not awaited: with no
-  /// signal Firestore keeps the latest write and sends it when it can.
+  /// laptop to place the hazards its camera finds and for other trains to see
+  /// on the map. Not awaited: with no signal Firestore keeps the latest write
+  /// and sends it when it can.
   void _uploadPosition() {
     final pos = _pos;
     if (pos == null) return; // no fix: send nothing rather than a stale or wrong position
@@ -239,15 +303,177 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         .doc(unitId)
         .set({
           'unit_id': unitId,
+          'train_no': driver.trainNo,
+          'driver_name': driver.driverName,
+          'service': driver.service.id,
           'latitude': pos.latitude,
           'longitude': pos.longitude,
           'heading': usableHeading(pos.heading, pos.speed), // null = unknown (standing / slow)
+          'speed_mps': pos.speed >= 0 ? pos.speed : 0.0,
           'accuracy_m': pos.accuracy,
           // Server time, so the laptop can tell how old the position is without
           // depending on the phone's clock.
           'timestamp': FieldValue.serverTimestamp(),
         })
         .catchError((Object e) => debugPrint('train_position upload failed: $e'));
+  }
+
+  // ------------------------------------------------------------ trains
+
+  /// Keeps [_trains] in step with the `train_position` collection in Firestore.
+  void _startTrains() {
+    _trainSub = FirebaseFirestore.instance
+        .collection('train_position')
+        .snapshots()
+        .listen(
+          (snap) {
+            if (!mounted) return;
+            setState(() {
+              _trains = [for (final doc in snap.docs) ?_parseTrain(doc.id, doc.data())];
+              _trainProblem = null;
+            });
+          },
+          onError: (Object e) {
+            if (mounted) setState(() => _trainProblem = 'Train feed offline');
+          },
+        );
+  }
+
+  static OtherTrain? _parseTrain(String id, Map<String, dynamic> d) {
+    final t = d['timestamp'];
+    final lastSeen = t is Timestamp ? t.toDate() : (t is String ? DateTime.tryParse(t) : null);
+    return OtherTrain.fromMap(id, d, lastSeen: lastSeen);
+  }
+
+  List<OtherTrain> _visibleTrains() {
+    final pos = _pos;
+    return trainsToShow(
+      trains: _trains,
+      ownUnitId: unitId,
+      now: DateTime.now(),
+      lat: pos?.latitude,
+      lon: pos?.longitude,
+    );
+  }
+
+  TrainConflictInfo? _conflictForTrain(OtherTrain t) {
+    final net = _railNetwork;
+    final pos = _pos;
+    if (net == null || pos == null) return null;
+    final pTrain = net.snap(pos.latitude, pos.longitude, gpsAccuracyM: pos.accuracy);
+    if (pTrain == null) return null;
+    return classifyTrainConflict(
+      network: net,
+      ownTrackPos: pTrain,
+      ownMeasuredDir: _travelDir,
+      ownService: driver.service,
+      ownSpeedMps: pos.speed >= 0 ? pos.speed : null,
+      otherTrain: t,
+    );
+  }
+
+  OtherTrain? get _mostUrgentApproachingTrain {
+    final net = _railNetwork;
+    final pos = _pos;
+    if (net == null || pos == null) return null;
+    final pTrain = net.snap(pos.latitude, pos.longitude, gpsAccuracyM: pos.accuracy);
+    if (pTrain == null) return null;
+
+    OtherTrain? bestTrain;
+    double minGap = double.infinity;
+
+    for (final t in _visibleTrains()) {
+      final c = classifyTrainConflict(
+        network: net,
+        ownTrackPos: pTrain,
+        ownMeasuredDir: _travelDir,
+        ownService: driver.service,
+        ownSpeedMps: pos.speed >= 0 ? pos.speed : null,
+        otherTrain: t,
+      );
+      if (c.conflict == TrainConflict.approaching) {
+        final gap = c.alongTrackGapM ?? double.infinity;
+        if (gap < minGap) {
+          minGap = gap;
+          bestTrain = t;
+        }
+      }
+    }
+    return bestTrain;
+  }
+
+  Future<void> _showTrain(OtherTrain t) async {
+    final pos = _pos;
+    final straightD = t.distanceFrom(pos?.latitude, pos?.longitude);
+    double? alongD;
+    final net = _railNetwork;
+    TrainConflictInfo? conflict;
+    if (net != null && pos != null) {
+      final pTrain = net.snap(pos.latitude, pos.longitude, gpsAccuracyM: pos.accuracy);
+      final pOther = net.snap(t.lat, t.lon);
+      if (pTrain != null && pOther != null) {
+        final d = net.alongTrack(pTrain, pOther);
+        if (d != null) alongD = d.abs();
+      }
+      if (pTrain != null) {
+        conflict = classifyTrainConflict(
+          network: net,
+          ownTrackPos: pTrain,
+          ownMeasuredDir: _travelDir,
+          ownService: driver.service,
+          ownSpeedMps: pos.speed >= 0 ? pos.speed : null,
+          otherTrain: t,
+        );
+      }
+    }
+    await showTrainDetail(
+      context,
+      train: t,
+      distanceM: straightD,
+      alongTrackM: alongD,
+      conflictInfo: conflict,
+    );
+  }
+
+  Future<void> _showTrainList() async {
+    final pos = _pos;
+    final net = _railNetwork;
+    Map<String, double>? alongDistances;
+    Map<String, TrainConflictInfo>? conflicts;
+    if (net != null && pos != null) {
+      final pTrain = net.snap(pos.latitude, pos.longitude, gpsAccuracyM: pos.accuracy);
+      if (pTrain != null) {
+        alongDistances = {};
+        conflicts = {};
+        for (final t in _visibleTrains()) {
+          final pOther = net.snap(t.lat, t.lon);
+          if (pOther != null) {
+            final d = net.alongTrack(pTrain, pOther);
+            if (d != null) alongDistances[t.unitId] = d.abs();
+          }
+          conflicts[t.unitId] = classifyTrainConflict(
+            network: net,
+            ownTrackPos: pTrain,
+            ownMeasuredDir: _travelDir,
+            ownService: driver.service,
+            ownSpeedMps: pos.speed >= 0 ? pos.speed : null,
+            otherTrain: t,
+          );
+        }
+      }
+    }
+    final picked = await showTrainList(
+      context,
+      trains: _visibleTrains(),
+      fromLat: pos?.latitude,
+      fromLon: pos?.longitude,
+      alongTrackDistances: alongDistances,
+      conflicts: conflicts,
+    );
+    if (picked == null || !mounted) return;
+    setState(() => _follow = false);
+    _moveTo(LatLng(picked.lat, picked.lon));
+    await _showTrain(picked);
   }
 
   // ------------------------------------------------------------ hazards
@@ -298,6 +524,33 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   /// Recomputes the alerts, and sounds each new level once.
   void _updateWarning() {
     final pos = _pos;
+
+    // Track position and travel direction along the route
+    final net = _railNetwork;
+    if (net != null && pos != null) {
+      final curPos = net.snap(pos.latitude, pos.longitude);
+      if (curPos != null) {
+        if (_prevTrackPos != null && _prevTrackPos!.routeId == curPos.routeId) {
+          final diff = curPos.chainageM - _prevTrackPos!.chainageM;
+          if (diff.abs() >= 1.5) {
+            _travelDir = diff > 0 ? TravelDirection.increasing : TravelDirection.decreasing;
+            _prevTrackPos = curPos;
+          }
+        } else {
+          _prevTrackPos = curPos;
+          final usable = usableHeading(pos.heading, pos.speed);
+          if (usable != null) {
+            _travelDir = net.travelDirectionFromHeading(
+              position: curPos,
+              headingDeg: usable,
+            );
+          } else {
+            _travelDir = TravelDirection.unknown;
+          }
+        }
+      }
+    }
+
     // This train's own reports do not alert it: its driver (or its camera
     // unit) already knows. They still show on the map and in the list.
     final others = _hazards.where((h) => h.unitId != unitId);
@@ -309,6 +562,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             headingDeg: usableHeading(pos.heading, pos.speed),
             hazards: others,
             now: DateTime.now(),
+            network: _railNetwork,
+            travelDirection: _travelDir,
+            gpsAccuracyM: pos.accuracy,
           );
     _tracker.keepOnly(_hazards.map((h) => h.id).toSet());
     _acknowledged.retainWhere((id) => _hazards.any((h) => h.id == id));
@@ -355,6 +611,30 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   HazardRow _row(Hazard h) {
     final pos = _pos;
     if (pos == null) return HazardRow(h, null, null);
+
+    final net = _railNetwork;
+    if (net != null) {
+      final tPos = net.snap(pos.latitude, pos.longitude);
+      final hPos = net.snap(h.latitude, h.longitude);
+      if (tPos != null && hPos != null && tPos.offsetM <= 15.0 && hPos.offsetM <= 15.0 && tPos.routeId == hPos.routeId) {
+        final diff = hPos.chainageM - tPos.chainageM;
+        final bool? isAhead;
+        if (_travelDir == TravelDirection.increasing) {
+          isAhead = diff > 0;
+        } else if (_travelDir == TravelDirection.decreasing) {
+          isAhead = diff < 0;
+        } else {
+          isAhead = null;
+        }
+        return HazardRow(
+          h,
+          diff.abs(),
+          isAhead,
+          alongTrack: true,
+        );
+      }
+    }
+
     final heading = usableHeading(pos.heading, pos.speed);
     return HazardRow(
       h,
@@ -362,6 +642,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       heading == null
           ? null
           : isAhead(bearingDeg(pos.latitude, pos.longitude, h.latitude, h.longitude), heading),
+      alongTrack: false,
     );
   }
 
@@ -447,9 +728,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Future<void> _loadMap() async {
     final style = await rootBundle.loadString('assets/map_style.json');
     final lines = await loadRailway();
+    final network = await loadRailNetwork();
     if (!mounted) return;
     setState(() {
       _mapStyle = style;
+      _railNetwork = network;
       _rail = {
         for (var i = 0; i < lines.length; i++) ...[
           // Soft glow under a thin bright line.
@@ -526,6 +809,27 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       );
     }
     final pos = _pos;
+    final now = DateTime.now();
+    if (_trainIcon != null) {
+      for (final t in _visibleTrains()) {
+        final live = t.isLive(now);
+        markers.add(
+          Marker(
+            markerId: MarkerId('train/${t.unitId}/${live ? 'live' : 'stale'}'),
+            position: LatLng(t.lat, t.lon),
+            icon: _trainIcon!,
+            rotation: t.heading ?? 0,
+            flat: true,
+            alpha: live ? 1.0 : 0.45,
+            anchor: const Offset(0.5, 0.5),
+            zIndexInt: 1,
+            infoWindow: InfoWindow(title: t.markerLabel),
+            consumeTapEvents: true,
+            onTap: () => _showTrain(t),
+          ),
+        );
+      }
+    }
     if (pos != null && _trainIcon != null) {
       markers.add(
         Marker(
@@ -611,6 +915,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               child: Column(
                 children: [
                   _topBar(),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Padding(
+                      padding: const EdgeInsets.only(left: 12, bottom: 4),
+                      child: _trainsChip(),
+                    ),
+                  ),
                   Expanded(
                     child: Align(
                       alignment: const Alignment(-1, -0.55),
@@ -695,42 +1006,148 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     ],
   );
 
+  /// Opens the registration form again, so the train can be handed over.
+  /// Changing the unit id restarts the screen (HomeScreen is keyed on it),
+  /// which re-subscribes the feeds under the new unit.
+  Future<void> _editDriver() async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => RegisterScreen(
+          existing: driver,
+          onDone: (p) {
+            _signedIn = p;
+            Navigator.of(context).pop();
+            setState(() {});
+          },
+          onSignOut: () {
+            Navigator.of(context).pop();
+            widget.onSignOut?.call();
+          },
+        ),
+      ),
+    );
+    if (mounted) setState(() {});
+  }
+
   Widget _topBar() {
     final pos = _pos;
+    final train = driver.trainNo.isEmpty ? unitId : '${driver.trainLabel}  ·  $unitId';
     final subtitle = simMode
         ? 'Simulated GPS'
         : pos == null || _gpsProblem != null
-        ? '$unitId  ·  no GPS fix'
-        : '$unitId  ·  GPS ±${pos.accuracy.toStringAsFixed(0)} m';
+        ? '$train  ·  no GPS fix'
+        : '$train  ·  GPS ±${pos.accuracy.toStringAsFixed(0)} m';
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
       child: Row(
         children: [
-          Container(
-            padding: const EdgeInsets.fromLTRB(5, 5, 18, 5),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(32),
-              boxShadow: cardShadow,
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _logo(42),
-                const SizedBox(width: 10),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('RailGuard', style: TS.title),
-                    Text(subtitle, style: TS.small),
-                  ],
-                ),
-              ],
+          // Tap the name plate to change driver or train: a unit is handed
+          // over between drivers without reinstalling the app.
+          GestureDetector(
+            onTap: _editDriver,
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(5, 5, 18, 5),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(32),
+                boxShadow: cardShadow,
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _logo(42),
+                  const SizedBox(width: 10),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        driver.driverName.isEmpty ? 'RailGuard' : driver.driverName,
+                        style: TS.title,
+                      ),
+                      Text(subtitle, style: TS.small),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
           const Spacer(),
           _roundButton(Icons.notifications_none_rounded, _showList, badge: _fresh().length),
         ],
+      ),
+    );
+  }
+
+  /// Small chip below the top bar showing how many other trains are on the line
+  /// (or "Train feed offline" in amber if the Firestore stream fails).
+  Widget _trainsChip() {
+    if (_trainProblem != null) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+        decoration: BoxDecoration(
+          color: RG.warn,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: cardShadow,
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.cloud_off_rounded, size: 16, color: Colors.white),
+            const SizedBox(width: 6),
+            Text(
+              _trainProblem!,
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: Colors.white,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    final trains = _visibleTrains();
+    if (trains.isEmpty) return const SizedBox.shrink();
+
+    final urgentTrain = _mostUrgentApproachingTrain;
+    final isConflict = urgentTrain != null;
+    final count = trains.length;
+    final label = isConflict
+        ? 'Approaching: ${urgentTrain.trainNo.isEmpty ? urgentTrain.unitId : urgentTrain.trainNo}'
+        : (count == 1 ? '1 train on the line' : '$count trains on the line');
+    final chipColor = isConflict ? const Color(0xFF5E35B1) : RG.blue;
+    final chipBg = isConflict ? const Color(0xFFEDE7F6) : Colors.white;
+
+    return Material(
+      color: chipBg,
+      borderRadius: BorderRadius.circular(20),
+      elevation: 0,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(20),
+        onTap: _showTrainList,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: cardShadow,
+            border: isConflict ? Border.all(color: const Color(0xFF7E57C2), width: 1.2) : null,
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.train_rounded, size: 16, color: chipColor),
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: TS.label.copyWith(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: isConflict ? const Color(0xFF311B92) : RG.text,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -768,17 +1185,114 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     ),
   );
 
+  Widget _approachingTrainBanner(OtherTrain t, TrainConflictInfo c) {
+    return InkWell(
+      onTap: () => _showTrain(t),
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: const Color(0xFFEDE7F6),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFF7E57C2), width: 1.5),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.warning_amber_rounded, color: Color(0xFF512DA8), size: 22),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      const Text(
+                        'TRAIN CONFLICT ADVISORY',
+                        style: TextStyle(
+                          color: Color(0xFF311B92),
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        t.trainNo.isEmpty ? t.unitId : 'Train ${t.trainNo}',
+                        style: const TextStyle(
+                          color: Color(0xFF4527A0),
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      if (c.isDirectionUnknown) ...[
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF512DA8).withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: const Text(
+                            'dir unknown',
+                            style: TextStyle(
+                              color: Color(0xFF311B92),
+                              fontSize: 9,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '${formatDistance(c.alongTrackGapM ?? 0)} along line  ·  closing ${c.closingSpeedKmh ?? 0} km/h  ·  meet in ${c.timeToMeetText}',
+                    style: const TextStyle(
+                      color: Color(0xFF311B92),
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_right_rounded, color: Color(0xFF512DA8), size: 20),
+          ],
+        ),
+      ),
+    );
+  }
+
   /// Dark live-status pill on top of the status card, in one white panel.
-  Widget _statusPanel() => Container(
-    margin: const EdgeInsets.fromLTRB(12, 0, 12, 10),
-    padding: const EdgeInsets.all(6),
-    decoration: BoxDecoration(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(24),
-      boxShadow: cardShadow,
-    ),
-    child: Column(children: [_livePill(), const SizedBox(height: 6), _statusCard()]),
-  );
+  Widget _statusPanel() {
+    final urgentTrain = _mostUrgentApproachingTrain;
+    TrainConflictInfo? conflict;
+    if (urgentTrain != null) {
+      conflict = _conflictForTrain(urgentTrain);
+    }
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+      padding: const EdgeInsets.all(6),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: cardShadow,
+      ),
+      child: Column(
+        children: [
+          _livePill(),
+          if (urgentTrain != null && conflict != null) ...[
+            const SizedBox(height: 6),
+            _approachingTrainBanner(urgentTrain, conflict),
+          ],
+          const SizedBox(height: 6),
+          _statusCard(),
+        ],
+      ),
+    );
+  }
 
   Widget _livePill() {
     final pos = _pos;
@@ -848,8 +1362,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       final s = severityInfo(w.hazard);
       icon = t.icon;
       iconColour = levelColour(w.level);
-      title = '${t.label}  ·  ${formatDistance(w.distanceM)}';
-      subtitle = '${s.label}  ·  ${w.headingKnown ? 'ahead' : 'direction unknown'}';
+      if (w.onAnotherLine) {
+        title = '${t.label}  ·  ${formatDistance(w.distanceM)}';
+        subtitle = '${s.label}  ·  on another line';
+      } else if (w.alongTrack) {
+        title = '${t.label}  ·  ${formatDistance(w.distanceM)} along the line';
+        subtitle = '${s.label}  ·  ${w.headingKnown ? 'ahead' : 'direction unknown'}';
+      } else {
+        title = '${t.label}  ·  ${formatDistance(w.distanceM)}';
+        subtitle = '${s.label}  ·  ${w.headingKnown ? 'ahead' : 'direction unknown'}';
+      }
       tag = levelName(w.level);
       if (w.level == AlertLevel.stop || w.level == AlertLevel.caution) {
         bg = iconColour;
