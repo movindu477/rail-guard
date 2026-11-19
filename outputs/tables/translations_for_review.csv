@@ -1,0 +1,61 @@
+﻿string_key,english,sinhala,tamil,reviewed
+alertStop,STOP,නවත්වන්න,நிறுத்து,no
+alertCaution,CAUTION,අවවාදයයි,எச்சரிக்கை,no
+alertInfo,INFO,තොරතුරු,தகவல்,no
+hazardAnimal,Animal,සතෙක්,விலங்கு,no
+hazardPerson,Person,පුද්ගලයෙක්,நபர்,no
+hazardVehicle,Vehicle,වාහනයක්,வாகனம்,no
+hazardObstruction,Obstruction,බාධකයක්,தடை,no
+severityBlocked,Line blocked,මාර්ගය අවහිරයි,பாதை தடைப்பட்டுள்ளது,no
+severityBlockedHint,Train cannot pass,දුම්රියට ගමන් කළ නොහැක,ரயில் செல்ல முடியாது,no
+severityNear,Near the line,මාර්ගය අසල,பாதைக்கு அருகில்,no
+severityNearHint,Pass with caution,ප්‍රවේශමෙන් ගමන් කරන්න,கவனமாக செல்லவும்,no
+stopLineBlocked,LINE BLOCKED,මාර්ගය අවහිරයි,பாதை தடைப்பட்டுள்ளது,no
+stopNearLine,NEAR THE LINE,මාර්ගය අසල,பாதைக்கு அருகில்,no
+stopAlongLine,ALONG THE LINE,දුම්රිය මාර්ගය දිගේ,ரயில் பாதை வழியே,no
+stopAhead,AHEAD,ඉදිරියෙන්,முன்னால்,no
+stopDirectionUnknown,DIRECTION UNKNOWN,දිශාව නොදනී,திசை தெரியவில்லை,no
+btnAcknowledge,ACKNOWLEDGE,තහවුරු කරන්න,ஒப்புக்கொள்,no
+promptStillThereTitle,Still there?,තවමත් එතැනද?,இன்னும் உள்ளதா?,no
+promptYouJustPassed,You just passed: {hazard},ඔබ දැන් පසු කළේ: {hazard},நீங்கள் கடந்தது: {hazard},no
+answerCleared,Cleared,ඉවත් වී ඇත,அகற்றப்பட்டது,no
+answerStillThere,Still there,තවමත් ඇත,இன்னும் உள்ளது,no
+answerDidNotSee,Did not see,නොදුටුවෙමි,பார்க்கவில்லை,no
+promptDidNotSeeHint,“Did not see” records your pass without clearing the warning.,“නොදුටුවෙමි” තේරීමෙන් අනතුරු ඇඟවීම ඉවත් නොවේ.,“பார்க்கவில்லை” என்பது எச்சரிக்கையை அகற்றாமல் பதிவாகும்.,no
+btnReport,REPORT,වාර්තා කරන්න,புகார்,no
+reportHazardTitle,Report hazard,අනතුරක් වාර්තා කරන්න,ஆபத்தை புகாரளி,no
+reportWhatIsIt,What is on the line?,මාර්ගයේ ඇත්තේ කුමක්ද?,பாதையில் என்ன உள்ளது?,no
+reportHowBad,How bad is it?,තත්ත්වය කෙසේද?,நிலைமை எவ்வாறு உள்ளது?,no
+btnCancel,Cancel,අවලංගු කරන්න,ரத்து,no
+btnClose,Close,වසන්න,மூடு,no
+btnFollow,Follow,අනුගමනය,பின்தொடர்,no
+btnMarkCleared,Mark as cleared,ඉවත් කළ බව සලකුණු කරන්න,அகற்றப்பட்டதாக குறி,no
+statusNoHazardsAhead,No hazards ahead,ඉදිරියේ අනතුරු නැත,முன்னால் ஆபத்து இல்லை,no
+statusLineClear3km,Line clear within 3 km,කි.මී. 3 ක් ඇතුළත මාර්ගය පැහැදිලිය,3 கி.மீ வரை பாதை தெளிவாக உள்ளது,no
+statusClearTag,CLEAR,පැහැදිලිය,தெளிவு,no
+statusCannotCheckNoSignal,Cannot check — no signal,පරීක්ෂා කළ නොහැක — signal නැත,சரிபார்க்க முடியவில்லை — signal இல்லை,no
+statusCachedDataOnly,Last updated {age} · cached data only,අවසන් යාවත්කාලීනය {age} · පැරණි දත්ත පමණි,கடைசி புதுப்பிப்பு {age} · பழைய தரவு மட்டும்,no
+bannerNoSignal,No signal — hazards shown were last updated {age}.,Signal නැත — පෙන්වන අනතුරු අවසන් වරට යාවත්කාලීන කළේ {age}.,Signal இல்லை — காட்டப்படும் ஆபத்துகள் கடைசியாக புதுப்பிக்கப்பட்டது {age}.,no
+badgeNotYetSent,not yet sent,තවම යවා නැත,இன்னும் அனுப்பப்படவில்லை,no
+pendingWaitingSingle,1 report waiting to send,වාර්තා 1 ක් යැවීමට රැඳී ඇත,1 புகார் அனுப்ப காத்திருக்கிறது,no
+pendingWaitingPlural,{count} reports waiting to send,වාර්තා {count} ක් යැවීමට රැඳී ඇත,{count} புகார்கள் அனுப்ப காத்திருக்கின்றன,no
+advisoryTrainConflict,TRAIN CONFLICT ADVISORY,දුම්රිය ගැටුම් අවවාදය,ரயில் மோதல் எச்சரிக்கை,no
+advisoryOpposingTrain,Opposing train approaching on your line,ප්‍රතිවිරුද්ධ දුම්රියක් ඔබේ මාර්ගයේ ළඟා වේ,எதிர் ரயில் உங்கள் பாதையில் நெருங்குகிறது,no
+advisoryAlongTrackGap,Along-track gap,මාර්ගය දිගේ දුර,பாதை வழியே தூரம்,no
+advisoryClosingSpeed,Closing speed,ඒකාබද්ධ වේගය,இணைந்த வேகம்,no
+advisoryTimeToMeet,Estimated time to meet,හමුවීමට ඇස්තමේන්තු කාලය,சந்திக்கும் மதிப்பீட்டு நேரம்,no
+advisoryDisclaimer,"Train conflict display is advisory only and does not replace token working, signalling or interlocking.","මෙය උපදේශන දර්ශනයක් පමණි; token working, signalling හෝ interlocking වෙනුවට නොවේ.","இது ஆலோசனை காட்சி மட்டுமே; token working, signalling அல்லது interlocking-க்கு மாற்று அல்ல.",no
+signInTitle,Sign in Your Account,ගිණුමට පිවිසෙන්න,கணக்கில் உள்நுழைக,no
+signInSubtitle,Enter your email and password to access the cab dashboard,විද්‍යුත් තැපෑල සහ මුරපදය ඇතුළත් කරන්න,மின்னஞ்சல் மற்றும் கடவுச்சொல்லை உள்ளிடவும்,no
+btnSignIn,Sign In,පිවිසෙන්න,உள்நுழை,no
+driverDetailsTitle,Driver details,රියදුරු විස්තර,ஓட்டுநர் விவரங்கள்,no
+createAccountTitle,Create An Account,ගිණුමක් සාදන්න,கணக்கு உருவாக்கு,no
+labelDriverDetails,DRIVER DETAILS,රියදුරු විස්තර,ஓட்டுநர் விவரங்கள்,no
+labelTrainAssignment,TRAIN ASSIGNMENT,දුම්රිය පැවරුම,ரயில் ஒதுக்கீடு,no
+labelDirection,DIRECTION OF RUNNING,ගමන් දිශාව,பயண திசை,no
+serviceUpDesc,to Colombo,කොළඹ දෙසට,கொழும்பு நோக்கி,no
+serviceDownDesc,from Colombo,කොළඹ සිට,கொழும்பில் இருந்து,no
+btnSaveChanges,Save Changes,වෙනස්කම් සුරකින්න,மாற்றங்களை சேமி,no
+btnStartDuty,Sign Up & Start Duty,ලියාපදිංචි වී රාජකාරිය අරඹන්න,பதிவு செய்து பணியை தொடங்கு,no
+labelLanguage,LANGUAGE,භාෂාව,மொழி,no
+unreviewedTranslationNotice,Sinhala and Tamil text has not yet been checked by a native speaker.,Sinhala and Tamil text has not yet been checked by a native speaker.,Sinhala and Tamil text has not yet been checked by a native speaker.,no

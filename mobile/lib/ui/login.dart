@@ -9,6 +9,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../account.dart';
 import '../driver.dart';
+import '../l10n/app_localizations.dart';
+import '../locale_store.dart';
 import 'splash.dart';
 import 'theme.dart';
 
@@ -194,6 +196,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final heroHeight = MediaQuery.sizeOf(context).height * 0.38;
 
     return Scaffold(
@@ -287,21 +290,23 @@ class _LoginScreenState extends State<LoginScreen> {
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
                           // Card header matching design reference
-                          const Text(
-                            'Sign in Your Account',
-                            style: TextStyle(
+                          Text(
+                            l10n.signInTitle,
+                            style: const TextStyle(
                               fontSize: 22,
                               fontWeight: FontWeight.w700,
                               color: Color(0xFF1F2937),
                               letterSpacing: -0.2,
+                              fontFamilyFallback: scriptFontFallbacks,
                             ),
                           ),
                           const SizedBox(height: 4),
-                          const Text(
-                            'Enter your email and password to access the cab dashboard',
-                            style: TextStyle(
+                          Text(
+                            l10n.signInSubtitle,
+                            style: const TextStyle(
                               fontSize: 13,
                               color: Color(0xFF6B7280),
+                              fontFamilyFallback: scriptFontFallbacks,
                             ),
                           ),
                           const SizedBox(height: 22),
@@ -472,13 +477,14 @@ class _LoginScreenState extends State<LoginScreen> {
                                         color: Colors.white,
                                       ),
                                     )
-                                  : const Text(
-                                      'Sign In',
-                                      style: TextStyle(
+                                  : Text(
+                                      l10n.btnSignIn,
+                                      style: const TextStyle(
                                         fontSize: 16,
                                         fontWeight: FontWeight.w700,
                                         color: Colors.white,
                                         letterSpacing: 0.2,
+                                        fontFamilyFallback: scriptFontFallbacks,
                                       ),
                                     ),
                             ),

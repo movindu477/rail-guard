@@ -2,6 +2,8 @@
 
 Train conflict display is advisory only and does not replace token working, signalling or interlocking.
 
+Firestore position write rate per unit: 120 writes/hour standing (30 s heartbeat, 2,880/day) and 720 writes/hour moving (> 10 m on a 5 s cadence, 17,280/day) against the 20,000/day Spark quota.
+
 A new Flutter project.
 
 ## Getting Started

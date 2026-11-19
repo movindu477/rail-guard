@@ -11,6 +11,8 @@ import 'package:flutter/services.dart';
 
 import '../account.dart';
 import '../driver.dart';
+import '../l10n/app_localizations.dart';
+import '../locale_store.dart';
 import 'splash.dart';
 import 'theme.dart';
 
@@ -172,6 +174,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final editing = widget.existing != null;
     if (editing) {
       return Scaffold(
@@ -180,7 +183,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           backgroundColor: RG.surface,
           surfaceTintColor: RG.surface,
           elevation: 0,
-          title: const Text('Driver details', style: TS.title),
+          title: Text(l10n.driverDetailsTitle, style: TS.title),
           actions: [
             IconButton(
               icon: const Icon(Icons.logout, color: RG.danger),
@@ -300,20 +303,25 @@ class _RegisterScreenState extends State<RegisterScreen> {
     );
   }
 
-  Widget _buildForm({required bool editing}) => Form(
+  Widget _buildForm({required bool editing}) {
+    final l10n = AppLocalizations.of(context)!;
+    return Form(
     key: _form,
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        _languageSelector(l10n),
+        const SizedBox(height: 18),
         if (!editing) ...[
           // Mockup Title & Subtitle
-          const Text(
-            'Create An Account',
-            style: TextStyle(
+          Text(
+            l10n.createAccountTitle,
+            style: const TextStyle(
               fontSize: 22,
               fontWeight: FontWeight.w700,
               color: Color(0xFF1F2937),
               letterSpacing: -0.2,
+              fontFamilyFallback: scriptFontFallbacks,
             ),
           ),
           const SizedBox(height: 4),
@@ -370,7 +378,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           const SizedBox(height: 20),
         ],
 
-        _sectionLabel('DRIVER DETAILS'),
+        _sectionLabel(l10n.labelDriverDetails),
         const SizedBox(height: 8),
         _roundedField(
           controller: _name,
@@ -388,7 +396,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         ),
         const SizedBox(height: 20),
 
-        _sectionLabel('TRAIN ASSIGNMENT'),
+        _sectionLabel(l10n.labelTrainAssignment),
         const SizedBox(height: 8),
         _roundedField(
           controller: _train,
@@ -411,12 +419,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
         ),
         const SizedBox(height: 20),
 
-        _sectionLabel('DIRECTION OF RUNNING'),
+        _sectionLabel(l10n.labelDirection),
         const SizedBox(height: 8),
         Row(
           children: [
             for (final s in Service.values) ...[
-              Expanded(child: _serviceButton(s)),
+              Expanded(child: _serviceButton(s, l10n)),
               if (s != Service.values.last) const SizedBox(width: 12),
             ],
           ],
@@ -487,12 +495,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     ),
                   )
                 : Text(
-                    editing ? 'Save Changes' : 'Sign Up & Start Duty',
+                    editing ? l10n.btnSaveChanges : l10n.btnStartDuty,
                     style: const TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w700,
                       color: Colors.white,
                       letterSpacing: 0.2,
+                      fontFamilyFallback: scriptFontFallbacks,
                     ),
                   ),
           ),
@@ -546,8 +555,81 @@ class _RegisterScreenState extends State<RegisterScreen> {
       ],
     ),
   );
+  }
 
   // ------------------------------------------------------------ UI pieces
+
+  Widget _languageSelector(AppLocalizations l10n) {
+    final activeCode = Localizations.localeOf(context).languageCode;
+    const options = [
+      (Locale('en'), 'English'),
+      (Locale('si'), 'සිංහල'),
+      (Locale('ta'), 'தமிழ்'),
+    ];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _sectionLabel(l10n.labelLanguage),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            for (final (loc, label) in options) ...[
+              Expanded(
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(14),
+                  onTap: () => setAppLocale(loc),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 150),
+                    padding: const EdgeInsets.symmetric(vertical: 11),
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: activeCode == loc.languageCode
+                          ? RG.blue.withValues(alpha: 0.10)
+                          : const Color(0xFFF9FAFB),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                        color: activeCode == loc.languageCode
+                            ? RG.blue
+                            : const Color(0xFFE5E7EB),
+                        width: activeCode == loc.languageCode ? 1.8 : 1.2,
+                      ),
+                    ),
+                    child: Text(
+                      label,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: activeCode == loc.languageCode
+                            ? RG.blue
+                            : const Color(0xFF1F2937),
+                        fontFamily: fontFamilyForLocale(loc),
+                        fontFamilyFallback: scriptFontFallbacks,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              if (loc != options.last.$1) const SizedBox(width: 8),
+            ],
+          ],
+        ),
+        if (!translationsReviewed) ...[
+          const SizedBox(height: 6),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: Text(
+              l10n.unreviewedTranslationNotice,
+              style: const TextStyle(
+                fontSize: 11.5,
+                color: Color(0xFF92400E),
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
 
   Widget _sectionLabel(String t) => Padding(
     padding: const EdgeInsets.only(left: 4, bottom: 2),
@@ -558,6 +640,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         fontWeight: FontWeight.w700,
         color: Color(0xFF9CA3AF),
         letterSpacing: 0.8,
+        fontFamilyFallback: scriptFontFallbacks,
       ),
     ),
   );
@@ -626,7 +709,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     ),
   );
 
-  Widget _serviceButton(Service s) {
+  Widget _serviceButton(Service s, AppLocalizations l10n) {
     final on = _service == s;
     return InkWell(
       borderRadius: BorderRadius.circular(16),
@@ -660,10 +743,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
             ),
             const SizedBox(height: 2),
             Text(
-              s == Service.up ? 'to Colombo' : 'from Colombo',
+              s == Service.up ? l10n.serviceUpDesc : l10n.serviceDownDesc,
               style: const TextStyle(
                 fontSize: 11,
                 color: Color(0xFF6B7280),
+                fontFamilyFallback: scriptFontFallbacks,
               ),
             ),
           ],

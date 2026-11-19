@@ -30,6 +30,9 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  intl: any
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
@@ -67,11 +70,26 @@ flutter_native_splash:
 
 # The following section is specific to Flutter packages.
 flutter:
+  generate: true
 
   # The following line ensures that the Material Icons font is
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+
+  fonts:
+    - family: NotoSansSinhala
+      fonts:
+        - asset: assets/fonts/NotoSansSinhala-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/NotoSansSinhala-Bold.ttf
+          weight: 700
+    - family: NotoSansTamil
+      fonts:
+        - asset: assets/fonts/NotoSansTamil-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/NotoSansTamil-Bold.ttf
+          weight: 700
 
   assets:
     - assets/images/             # logo.jpg (source), logo_mark.png (tool/make_logo_assets.py)

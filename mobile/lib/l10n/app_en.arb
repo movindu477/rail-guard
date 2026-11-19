@@ -1,0 +1,91 @@
+{
+  "@@locale": "en",
+  "alertStop": "STOP",
+  "alertCaution": "CAUTION",
+  "alertInfo": "INFO",
+  "hazardAnimal": "Animal",
+  "hazardPerson": "Person",
+  "hazardVehicle": "Vehicle",
+  "hazardObstruction": "Obstruction",
+  "severityBlocked": "Line blocked",
+  "severityBlockedHint": "Train cannot pass",
+  "severityNear": "Near the line",
+  "severityNearHint": "Pass with caution",
+  "stopLineBlocked": "LINE BLOCKED",
+  "stopNearLine": "NEAR THE LINE",
+  "stopAlongLine": "ALONG THE LINE",
+  "stopAhead": "AHEAD",
+  "stopDirectionUnknown": "DIRECTION UNKNOWN",
+  "btnAcknowledge": "ACKNOWLEDGE",
+  "promptStillThereTitle": "Still there?",
+  "promptYouJustPassed": "You just passed: {hazard}",
+  "@promptYouJustPassed": {
+    "placeholders": {
+      "hazard": {
+        "type": "String"
+      }
+    }
+  },
+  "answerCleared": "Cleared",
+  "answerStillThere": "Still there",
+  "answerDidNotSee": "Did not see",
+  "promptDidNotSeeHint": "“Did not see” records your pass without clearing the warning.",
+  "btnReport": "REPORT",
+  "reportHazardTitle": "Report hazard",
+  "reportWhatIsIt": "What is on the line?",
+  "reportHowBad": "How bad is it?",
+  "btnCancel": "Cancel",
+  "btnClose": "Close",
+  "btnFollow": "Follow",
+  "btnMarkCleared": "Mark as cleared",
+  "statusNoHazardsAhead": "No hazards ahead",
+  "statusLineClear3km": "Line clear within 3 km",
+  "statusClearTag": "CLEAR",
+  "statusCannotCheckNoSignal": "Cannot check — no signal",
+  "statusCachedDataOnly": "Last updated {age} · cached data only",
+  "@statusCachedDataOnly": {
+    "placeholders": {
+      "age": {
+        "type": "String"
+      }
+    }
+  },
+  "bannerNoSignal": "No signal — hazards shown were last updated {age}.",
+  "@bannerNoSignal": {
+    "placeholders": {
+      "age": {
+        "type": "String"
+      }
+    }
+  },
+  "badgeNotYetSent": "not yet sent",
+  "pendingWaitingSingle": "1 report waiting to send",
+  "pendingWaitingPlural": "{count} reports waiting to send",
+  "@pendingWaitingPlural": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "advisoryTrainConflict": "TRAIN CONFLICT ADVISORY",
+  "advisoryOpposingTrain": "Opposing train approaching on your line",
+  "advisoryAlongTrackGap": "Along-track gap",
+  "advisoryClosingSpeed": "Closing speed",
+  "advisoryTimeToMeet": "Estimated time to meet",
+  "advisoryDisclaimer": "Train conflict display is advisory only and does not replace token working, signalling or interlocking.",
+  "signInTitle": "Sign in Your Account",
+  "signInSubtitle": "Enter your email and password to access the cab dashboard",
+  "btnSignIn": "Sign In",
+  "driverDetailsTitle": "Driver details",
+  "createAccountTitle": "Create An Account",
+  "labelDriverDetails": "DRIVER DETAILS",
+  "labelTrainAssignment": "TRAIN ASSIGNMENT",
+  "labelDirection": "DIRECTION OF RUNNING",
+  "serviceUpDesc": "to Colombo",
+  "serviceDownDesc": "from Colombo",
+  "btnSaveChanges": "Save Changes",
+  "btnStartDuty": "Sign Up & Start Duty",
+  "labelLanguage": "LANGUAGE",
+  "unreviewedTranslationNotice": "Sinhala and Tamil text has not yet been checked by a native speaker."
+}

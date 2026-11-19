@@ -72,6 +72,19 @@ class Hazard {
   final double? cameraDistanceM; // auto reports: camera's distance to the object
   final double? confidence; // auto reports: detector confidence
 
+  // Lifecycle fields (Step 5)
+  final String status; // 'active' or 'cleared'
+  final String? reportedByUid; // Firebase Auth uid of reporting driver, if any
+  final List<String> confirmedByUids; // drivers who answered "Still there"
+  final List<String> notSeenByUids; // drivers who answered "Did not see"
+  final List<String> clearedByUids; // drivers who answered "Cleared"
+  final String? clearedBy; // unit id that finalized the clear
+  final String? clearedByUid; // driver uid that finalized the clear
+  final DateTime? clearedAt;
+
+  /// True when this report is queued locally and has not yet been confirmed by Firestore.
+  final bool pendingSend;
+
   const Hazard({
     required this.id,
     required this.latitude,
@@ -83,9 +96,56 @@ class Hazard {
     this.unitId,
     this.cameraDistanceM,
     this.confidence,
+    this.status = 'active',
+    this.reportedByUid,
+    this.confirmedByUids = const [],
+    this.notSeenByUids = const [],
+    this.clearedByUids = const [],
+    this.clearedBy,
+    this.clearedByUid,
+    this.clearedAt,
+    this.pendingSend = false,
   });
 
   bool get blocked => severity != 'near';
+  bool get isAutoReport => reportedBy == 'auto';
+  bool get isActive => status == 'active';
+  int get confirmedCount => confirmedByUids.length;
+  int get notSeenCount => notSeenByUids.length;
+  int get clearedVotesCount => clearedByUids.length;
+
+  Hazard copyWith({
+    DateTime? time,
+    String? status,
+    String? reportedByUid,
+    List<String>? confirmedByUids,
+    List<String>? notSeenByUids,
+    List<String>? clearedByUids,
+    String? clearedBy,
+    String? clearedByUid,
+    DateTime? clearedAt,
+    bool? pendingSend,
+  }) => Hazard(
+    id: id,
+    latitude: latitude,
+    longitude: longitude,
+    objectType: objectType,
+    time: time ?? this.time,
+    severity: severity,
+    reportedBy: reportedBy,
+    unitId: unitId,
+    cameraDistanceM: cameraDistanceM,
+    confidence: confidence,
+    status: status ?? this.status,
+    reportedByUid: reportedByUid ?? this.reportedByUid,
+    confirmedByUids: confirmedByUids ?? this.confirmedByUids,
+    notSeenByUids: notSeenByUids ?? this.notSeenByUids,
+    clearedByUids: clearedByUids ?? this.clearedByUids,
+    clearedBy: clearedBy ?? this.clearedBy,
+    clearedByUid: clearedByUid ?? this.clearedByUid,
+    clearedAt: clearedAt ?? this.clearedAt,
+    pendingSend: pendingSend ?? this.pendingSend,
+  );
 }
 
 // ---------------------------------------------------------------- tiers

@@ -8,26 +8,33 @@
 import 'package:flutter/material.dart';
 
 import '../driver.dart';
+import '../l10n/app_localizations.dart';
+import '../lifecycle.dart';
+import '../locale_store.dart';
 import '../trains.dart';
 import '../warning.dart';
 import 'theme.dart';
 
-Future<T?> _sheet<T>(BuildContext context, Widget Function(BuildContext) body) =>
-    showModalBottomSheet<T>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: RG.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
+Future<T?> _sheet<T>(
+  BuildContext context,
+  Widget Function(BuildContext) body,
+) => showModalBottomSheet<T>(
+  context: context,
+  isScrollControlled: true,
+  backgroundColor: RG.surface,
+  shape: const RoundedRectangleBorder(
+    borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
+  ),
+  builder: (ctx) => SafeArea(
+    top: false,
+    child: ConstrainedBox(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(ctx).size.height * 0.85,
       ),
-      builder: (ctx) => SafeArea(
-        top: false,
-        child: ConstrainedBox(
-          constraints: BoxConstraints(maxHeight: MediaQuery.of(ctx).size.height * 0.85),
-          child: body(ctx),
-        ),
-      ),
-    );
+      child: body(ctx),
+    ),
+  ),
+);
 
 /// "Cancel    Title" row at the top of each sheet.
 class _Header extends StatelessWidget {
@@ -42,7 +49,10 @@ class _Header extends StatelessWidget {
         Container(
           width: 36,
           height: 4,
-          decoration: BoxDecoration(color: RG.border, borderRadius: BorderRadius.circular(2)),
+          decoration: BoxDecoration(
+            color: RG.border,
+            borderRadius: BorderRadius.circular(2),
+          ),
         ),
         const SizedBox(height: 6),
         SizedBox(
@@ -54,7 +64,10 @@ class _Header extends StatelessWidget {
                 alignment: Alignment.centerLeft,
                 child: TextButton(
                   onPressed: onLeft ?? () => Navigator.pop(context),
-                  child: Text(left, style: const TextStyle(fontSize: 15, color: RG.blue)),
+                  child: Text(
+                    left,
+                    style: const TextStyle(fontSize: 15, color: RG.blue),
+                  ),
                 ),
               ),
               Text(title, style: TS.title),
@@ -96,58 +109,77 @@ Widget _choiceRow({
 );
 
 /// How bad is it: two large buttons, one tap. Shared by both report paths.
-Widget _severityStep(BuildContext ctx, HazardType t, {VoidCallback? onBack}) => Column(
-  mainAxisSize: MainAxisSize.min,
-  children: [
-    _Header(onBack == null ? 'Cancel' : 'Back', t.label, onLeft: onBack),
-    Padding(
-      padding: const EdgeInsets.fromLTRB(20, 14, 20, 10),
-      child: Row(
-        children: [
-          iconCircle(t.icon, t.colour, size: 36),
-          const SizedBox(width: 10),
-          const Text('How bad is it?', style: TS.body),
-        ],
+Widget _severityStep(BuildContext ctx, HazardType t, {VoidCallback? onBack}) {
+  final l10n = AppLocalizations.of(ctx)!;
+  return Column(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      _Header(
+        onBack == null ? l10n.btnCancel : 'Back',
+        localizedHazardType(l10n, t.id),
+        onLeft: onBack,
       ),
-    ),
-    for (final s in severities)
       Padding(
-        padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-        child: SizedBox(
-          width: double.infinity,
-          height: 76,
-          child: FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: s.colour,
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-            ),
-            onPressed: () => Navigator.pop(ctx, (t.id, s.id)),
-            child: Row(
-              children: [
-                Icon(s.icon, size: 30),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        s.label.toUpperCase(),
-                        style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
-                      ),
-                      Text(s.hint, style: const TextStyle(fontSize: 13)),
-                    ],
-                  ),
+        padding: const EdgeInsets.fromLTRB(20, 14, 20, 10),
+        child: Row(
+          children: [
+            iconCircle(t.icon, t.colour, size: 36),
+            const SizedBox(width: 10),
+            Text(l10n.reportHowBad, style: TS.body),
+          ],
+        ),
+      ),
+      for (final s in severities)
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+          child: SizedBox(
+            width: double.infinity,
+            height: 76,
+            child: FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: s.colour,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(18),
                 ),
-              ],
+              ),
+              onPressed: () => Navigator.pop(ctx, (t.id, s.id)),
+              child: Row(
+                children: [
+                  Icon(s.icon, size: 30),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          s.id == 'blocked' ? l10n.severityBlocked : l10n.severityNear,
+                          style: const TextStyle(
+                            fontSize: 17,
+                            fontWeight: FontWeight.w600,
+                            fontFamilyFallback: scriptFontFallbacks,
+                          ),
+                        ),
+                        Text(
+                          s.id == 'blocked' ? l10n.severityBlockedHint : l10n.severityNearHint,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontFamilyFallback: scriptFontFallbacks,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
-      ),
-    const SizedBox(height: 4),
-  ],
-);
+      const SizedBox(height: 4),
+    ],
+  );
+}
 
 /// Returns (object_type, severity), or null if cancelled. With [type] given
 /// (a quick-report button), it opens straight at the severity step.
@@ -165,23 +197,30 @@ Future<(String, String)?> showReportSheet(
     (ctx) => StatefulBuilder(
       builder: (ctx, setSheet) {
         final t = picked;
-        if (t != null) return _severityStep(ctx, t, onBack: () => setSheet(() => picked = null));
+        if (t != null) {
+          return _severityStep(
+            ctx,
+            t,
+            onBack: () => setSheet(() => picked = null),
+          );
+        }
         // Step 1: what is it.
+        final l10n = AppLocalizations.of(ctx)!;
         return Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const _Header('Cancel', 'Report hazard'),
+            _Header(l10n.btnCancel, l10n.reportHazardTitle),
             Padding(
               padding: const EdgeInsets.only(top: 10, bottom: 4),
               child: Text(
-                'At your position  ·  ±${accuracyM.toStringAsFixed(0)} m',
+                '${l10n.reportWhatIsIt}  ·  ±${accuracyM.toStringAsFixed(0)} m',
                 style: TS.small,
               ),
             ),
             for (final type in hazardTypes)
               _choiceRow(
                 lead: iconCircle(type.icon, type.colour, size: 46),
-                title: type.label,
+                title: localizedHazardType(l10n, type.id),
                 hint: type.hint,
                 onTap: () => setSheet(() => picked = type),
               ),
@@ -219,7 +258,9 @@ class HazardRow {
   String get direction => distanceM == null
       ? 'Distance unknown (no GPS)'
       : ahead == null
-      ? (alongTrack ? 'Along the line (direction unknown)' : 'Direction unknown (not moving)')
+      ? (alongTrack
+            ? 'Along the line (direction unknown)'
+            : 'Direction unknown (not moving)')
       : (ahead! ? (alongTrack ? 'Ahead along the line' : 'Ahead') : 'Behind');
 
   /// One line: "1.8 km along the line", "1.8 km ahead", "5 m, direction unknown".
@@ -227,11 +268,16 @@ class HazardRow {
       ? direction
       : alongTrack
       ? '$distance along the line${ahead == null ? '' : (ahead! ? '' : ' (behind)')}'
-      : (ahead == null ? '$distance, direction unknown' : '$distance ${ahead! ? 'ahead' : 'behind'}');
+      : (ahead == null
+            ? '$distance, direction unknown'
+            : '$distance ${ahead! ? 'ahead' : 'behind'}');
 }
 
 /// Timeline of active hazards. Returns the one tapped, or null.
-Future<Hazard?> showHazardList(BuildContext context, {required List<HazardRow> rows}) {
+Future<Hazard?> showHazardList(
+  BuildContext context, {
+  required List<HazardRow> rows,
+}) {
   final now = DateTime.now();
   return _sheet<Hazard>(
     context,
@@ -272,7 +318,9 @@ Future<Hazard?> showHazardList(BuildContext context, {required List<HazardRow> r
                               filled: r.level != AlertLevel.none,
                             ),
                             if (i < rows.length - 1)
-                              Expanded(child: Container(width: 2, color: RG.border)),
+                              Expanded(
+                                child: Container(width: 2, color: RG.border),
+                              ),
                           ],
                         ),
                         const SizedBox(width: 14),
@@ -282,11 +330,50 @@ Future<Hazard?> showHazardList(BuildContext context, {required List<HazardRow> r
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text('${t.label}  ·  ${r.distance}', style: TS.bodyStrong),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        '${t.label}  ·  ${r.distance}',
+                                        style: TS.bodyStrong,
+                                      ),
+                                    ),
+                                    if (r.hazard.pendingSend)
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 7,
+                                          vertical: 2,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFFEF3C7),
+                                          borderRadius: BorderRadius.circular(
+                                            8,
+                                          ),
+                                          border: Border.all(
+                                            color: const Color(0xFFD97706),
+                                          ),
+                                        ),
+                                        child: const Text(
+                                          'not yet sent',
+                                          style: TextStyle(
+                                            color: Color(0xFF92400E),
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                                Text(
+                                  '${t.label}  ·  ${r.distance}',
+                                  style: TS.bodyStrong,
+                                ),
                                 Text(
                                   '${s.label}  ·  ${r.direction}',
                                   style: TS.small.copyWith(
-                                    color: r.level == AlertLevel.none ? RG.textDim : colour,
+                                    color: r.level == AlertLevel.none
+                                        ? RG.textDim
+                                        : colour,
                                   ),
                                 ),
                                 Text(
@@ -327,12 +414,17 @@ Widget _fact(IconData icon, String text, {Color colour = RG.text}) => Padding(
 
 /// Everything the driver needs about one hazard. Returns true if the driver
 /// chose "Mark as cleared".
-Future<bool> showHazardDetail(BuildContext context, {required HazardRow row}) async {
+Future<bool> showHazardDetail(
+  BuildContext context, {
+  required HazardRow row,
+}) async {
   final h = row.hazard;
   final t = typeInfo(h.objectType);
   final s = severityInfo(h);
   final time = h.time;
-  final colour = row.level == AlertLevel.none ? t.colour : levelColour(row.level);
+  final colour = row.level == AlertLevel.none
+      ? t.colour
+      : levelColour(row.level);
   final cleared = await _sheet<bool>(
     context,
     (ctx) => SingleChildScrollView(
@@ -358,10 +450,43 @@ Future<bool> showHazardDetail(BuildContext context, {required HazardRow row}) as
               children: [
                 Icon(s.icon, size: 15, color: s.colour),
                 const SizedBox(width: 6),
-                Text('${s.label}  ·  ${s.hint}', style: TS.small.copyWith(color: s.colour)),
+                Text(
+                  '${s.label}  ·  ${s.hint}',
+                  style: TS.small.copyWith(color: s.colour),
+                ),
               ],
             ),
           ),
+          if (h.pendingSend) ...[
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFEF3C7),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: const Color(0xFFD97706)),
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.cloud_upload_outlined,
+                    size: 15,
+                    color: Color(0xFF92400E),
+                  ),
+                  SizedBox(width: 6),
+                  Text(
+                    'not yet sent  ·  waiting for signal',
+                    style: TextStyle(
+                      color: Color(0xFF92400E),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
           Container(
             margin: const EdgeInsets.fromLTRB(20, 16, 20, 4),
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
@@ -383,7 +508,9 @@ Future<bool> showHazardDetail(BuildContext context, {required HazardRow row}) as
                       : 'Reported ${ago(time, DateTime.now())}  (${hhmm(time)})',
                 ),
                 _fact(
-                  h.reportedBy == 'auto' ? Icons.videocam_rounded : Icons.person_rounded,
+                  h.reportedBy == 'auto'
+                      ? Icons.videocam_rounded
+                      : Icons.person_rounded,
                   reporterText(h),
                 ),
                 if (h.cameraDistanceM != null)
@@ -391,13 +518,31 @@ Future<bool> showHazardDetail(BuildContext context, {required HazardRow row}) as
                     Icons.straighten_rounded,
                     'Camera measured ${formatDistance(h.cameraDistanceM!)} to it',
                   ),
+                _fact(
+                  Icons.verified_rounded,
+                  confirmedCountLabel(h.confirmedCount),
+                  colour: h.confirmedCount > 0 ? RG.live : RG.textDim,
+                ),
+                _fact(
+                  Icons.visibility_off_rounded,
+                  notSeenCountLabel(h.notSeenCount),
+                  colour: RG.textDim,
+                ),
+                if (h.isAutoReport && h.clearedVotesCount > 0)
+                  _fact(
+                    Icons.how_to_vote_rounded,
+                    '${h.clearedVotesCount} of $autoClearRequiredDrivers drivers marked cleared',
+                    colour: RG.blue,
+                  ),
               ],
             ),
           ),
-          const Padding(
-            padding: EdgeInsets.fromLTRB(28, 10, 28, 14),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(28, 10, 28, 14),
             child: Text(
-              'Clearing removes this warning for every train. Only clear it once the line is clear.',
+              h.isAutoReport
+                  ? 'Camera-reported hazards need $autoClearRequiredDrivers independent drivers to clear before leaving the map.'
+                  : 'Clearing removes this warning for every train. Only clear it once the line is clear.',
               textAlign: TextAlign.center,
               style: TS.small,
             ),
@@ -414,7 +559,7 @@ Future<bool> showHazardDetail(BuildContext context, {required HazardRow row}) as
                   shape: const StadiumBorder(),
                 ),
                 onPressed: () => Navigator.pop(ctx, true),
-                child: const Text('Mark as cleared', style: TS.button),
+                child: Text(AppLocalizations.of(ctx)!.btnMarkCleared, style: TS.button),
               ),
             ),
           ),
@@ -423,6 +568,141 @@ Future<bool> showHazardDetail(BuildContext context, {required HazardRow row}) as
     ),
   );
   return cleared ?? false;
+}
+
+/// Prompt shown after passing a hazard along the track: "Still there?"
+/// with three answers: Cleared, Still there, Did not see.
+Future<HazardPassAnswer?> showStillTherePrompt(
+  BuildContext context, {
+  required Hazard hazard,
+}) {
+  final l10n = AppLocalizations.of(context)!;
+  final t = typeInfo(hazard.objectType);
+  final s = severityInfo(hazard);
+  final typeLabel = localizedHazardType(l10n, hazard.objectType);
+  final sevLabel = localizedSeverity(l10n, hazard);
+  return _sheet<HazardPassAnswer>(
+    context,
+    (ctx) => SingleChildScrollView(
+      padding: const EdgeInsets.only(bottom: 18),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _Header(l10n.btnClose, l10n.promptStillThereTitle),
+          const SizedBox(height: 12),
+          iconCircle(t.icon, t.colour, size: 60, filled: true),
+          const SizedBox(height: 10),
+          Text(
+            l10n.promptYouJustPassed(typeLabel),
+            style: TS.title.copyWith(fontSize: 18),
+          ),
+          const SizedBox(height: 6),
+          Container(
+            margin: const EdgeInsets.symmetric(horizontal: 20),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+            decoration: BoxDecoration(
+              color: s.colour.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(s.icon, size: 15, color: s.colour),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text(
+                    '$sevLabel  ·  ${hazard.isAutoReport ? 'Camera' : 'Driver'}${hazard.unitId != null ? ' (${hazard.unitId})' : ''}',
+                    overflow: TextOverflow.ellipsis,
+                    style: TS.small.copyWith(color: s.colour),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (hazard.isAutoReport)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 10, 24, 0),
+              child: Text(
+                hazard.clearedVotesCount > 0
+                    ? '${hazard.clearedVotesCount} of $autoClearRequiredDrivers drivers marked cleared — your clear will remove it.'
+                    : 'Camera report — needs $autoClearRequiredDrivers independent drivers to clear.',
+                textAlign: TextAlign.center,
+                style: TS.small.copyWith(
+                  color: RG.blue,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          const SizedBox(height: 18),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Column(
+              children: [
+                SizedBox(
+                  width: double.infinity,
+                  height: 52,
+                  child: FilledButton.icon(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: const Color(0xFF16A34A),
+                      foregroundColor: Colors.white,
+                      shape: const StadiumBorder(),
+                    ),
+                    onPressed: () =>
+                        Navigator.pop(ctx, HazardPassAnswer.cleared),
+                    icon: const Icon(Icons.check_circle_rounded),
+                    label: Text(l10n.answerCleared, style: TS.button),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  height: 52,
+                  child: FilledButton.icon(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: RG.warn,
+                      foregroundColor: Colors.white,
+                      shape: const StadiumBorder(),
+                    ),
+                    onPressed: () =>
+                        Navigator.pop(ctx, HazardPassAnswer.stillThere),
+                    icon: const Icon(Icons.warning_amber_rounded),
+                    label: Text(l10n.answerStillThere, style: TS.button),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  height: 52,
+                  child: OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: RG.text,
+                      side: const BorderSide(color: RG.border, width: 1.5),
+                      shape: const StadiumBorder(),
+                    ),
+                    onPressed: () =>
+                        Navigator.pop(ctx, HazardPassAnswer.didNotSee),
+                    icon: const Icon(
+                      Icons.visibility_off_rounded,
+                      color: RG.textDim,
+                    ),
+                    label: Text(l10n.answerDidNotSee, style: TS.button),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(28, 12, 28, 0),
+            child: Text(
+              l10n.promptDidNotSeeHint,
+              textAlign: TextAlign.center,
+              style: TS.small,
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
 }
 
 /// Details of another train on the line when its marker or list row is tapped.
@@ -437,17 +717,19 @@ Future<void> showTrainDetail(
   final live = train.isLive(now);
   final isApproaching = conflictInfo?.conflict == TrainConflict.approaching;
   final isOtherLine = conflictInfo?.conflict == TrainConflict.otherLine;
-  final colour = isApproaching ? const Color(0xFF5E35B1) : (live ? RG.blue : RG.info);
+  final colour = isApproaching
+      ? const Color(0xFF5E35B1)
+      : (live ? RG.blue : RG.info);
   final kmh = train.speedKmh;
   final distText = isOtherLine
       ? (distanceM == null
-          ? 'Distance unknown (other line)'
-          : '${formatDistance(distanceM)} (other line)')
+            ? 'Distance unknown (other line)'
+            : '${formatDistance(distanceM)} (other line)')
       : (alongTrackM != null
-          ? '${formatDistance(alongTrackM)} along the line from your train'
-          : (distanceM == null
-              ? 'Distance unknown (no GPS)'
-              : '${formatDistance(distanceM)} (straight-line) from your train'));
+            ? '${formatDistance(alongTrackM)} along the line from your train'
+            : (distanceM == null
+                  ? 'Distance unknown (no GPS)'
+                  : '${formatDistance(distanceM)} (straight-line) from your train'));
   return _sheet<void>(
     context,
     (ctx) => SingleChildScrollView(
@@ -470,11 +752,15 @@ Future<void> showTrainDetail(
                 children: [
                   Row(
                     children: [
-                      const Icon(Icons.warning_amber_rounded, color: Color(0xFF512DA8), size: 22),
+                      const Icon(
+                        Icons.warning_amber_rounded,
+                        color: Color(0xFF512DA8),
+                        size: 22,
+                      ),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          'TRAIN CONFLICT ADVISORY',
+                          AppLocalizations.of(ctx)!.advisoryTrainConflict,
                           style: TS.title.copyWith(
                             color: const Color(0xFF311B92),
                             fontSize: 13,
@@ -485,9 +771,14 @@ Future<void> showTrainDetail(
                       ),
                       if (conflictInfo!.isDirectionUnknown)
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
                           decoration: BoxDecoration(
-                            color: const Color(0xFF512DA8).withValues(alpha: 0.12),
+                            color: const Color(
+                              0xFF512DA8,
+                            ).withValues(alpha: 0.12),
                             borderRadius: BorderRadius.circular(6),
                           ),
                           child: const Text(
@@ -503,24 +794,32 @@ Future<void> showTrainDetail(
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Opposing train approaching on your line',
-                    style: TS.bodyStrong.copyWith(color: const Color(0xFF311B92), fontSize: 13),
+                    AppLocalizations.of(ctx)!.advisoryOpposingTrain,
+                    style: TS.bodyStrong.copyWith(
+                      color: const Color(0xFF311B92),
+                      fontSize: 13,
+                    ),
                   ),
                   const SizedBox(height: 8),
                   _conflictDetailRow(
-                    'Along-track gap',
-                    formatDistance(conflictInfo.alongTrackGapM ?? alongTrackM ?? 0),
+                    AppLocalizations.of(ctx)!.advisoryAlongTrackGap,
+                    formatDistance(
+                      conflictInfo.alongTrackGapM ?? alongTrackM ?? 0,
+                    ),
                   ),
                   _conflictDetailRow(
-                    'Closing speed',
+                    AppLocalizations.of(ctx)!.advisoryClosingSpeed,
                     conflictInfo.closingSpeedKmh == null
                         ? 'unknown'
                         : '${conflictInfo.closingSpeedKmh} km/h',
                   ),
-                  _conflictDetailRow('Estimated time to meet', conflictInfo.timeToMeetText),
+                  _conflictDetailRow(
+                    AppLocalizations.of(ctx)!.advisoryTimeToMeet,
+                    conflictInfo.timeToMeetText,
+                  ),
                   const SizedBox(height: 8),
                   Text(
-                    'Train conflict display is advisory only and does not replace token working, signalling or interlocking.',
+                    AppLocalizations.of(ctx)!.advisoryDisclaimer,
                     style: TS.small.copyWith(
                       color: const Color(0xFF512DA8),
                       fontSize: 11,
@@ -549,7 +848,9 @@ Future<void> showTrainDetail(
               mainAxisSize: MainAxisSize.min,
               children: [
                 Icon(
-                  train.service == Service.up ? Icons.north_east : Icons.south_west,
+                  train.service == Service.up
+                      ? Icons.north_east
+                      : Icons.south_west,
                   size: 15,
                   color: colour,
                 ),
@@ -572,14 +873,18 @@ Future<void> showTrainDetail(
               children: [
                 _fact(
                   Icons.person_rounded,
-                  train.driverName.isEmpty ? 'Driver not given' : train.driverName,
+                  train.driverName.isEmpty
+                      ? 'Driver not given'
+                      : train.driverName,
                 ),
                 _fact(
                   Icons.confirmation_number_outlined,
                   'Train ${train.trainNo.isEmpty ? '—' : train.trainNo}  ·  ${train.unitId}',
                 ),
                 _fact(
-                  train.service == Service.up ? Icons.north_east : Icons.south_west,
+                  train.service == Service.up
+                      ? Icons.north_east
+                      : Icons.south_west,
                   'Direction: ${train.service.short} (${train.service.label})',
                 ),
                 _fact(
@@ -606,7 +911,10 @@ Widget _conflictDetailRow(String label, String value) => Padding(
   child: Row(
     mainAxisAlignment: MainAxisAlignment.spaceBetween,
     children: [
-      Text(label, style: const TextStyle(color: Color(0xFF4527A0), fontSize: 12)),
+      Text(
+        label,
+        style: const TextStyle(color: Color(0xFF4527A0), fontSize: 12),
+      ),
       Text(
         value,
         style: const TextStyle(
@@ -638,7 +946,10 @@ Future<OtherTrain?> showTrainList(
         if (trains.isEmpty)
           const Padding(
             padding: EdgeInsets.fromLTRB(24, 24, 24, 36),
-            child: Text('No other trains active in the last 5 minutes.', style: TS.body),
+            child: Text(
+              'No other trains active in the last 5 minutes.',
+              style: TS.body,
+            ),
           )
         else
           Flexible(
@@ -646,19 +957,24 @@ Future<OtherTrain?> showTrainList(
               shrinkWrap: true,
               padding: const EdgeInsets.fromLTRB(20, 10, 20, 18),
               itemCount: trains.length,
-              separatorBuilder: (_, _) => const Divider(height: 1, color: RG.border),
+              separatorBuilder: (_, _) =>
+                  const Divider(height: 1, color: RG.border),
               itemBuilder: (_, i) {
                 final t = trains[i];
                 final live = t.isLive(now);
                 final conflict = conflicts?[t.unitId];
-                final isApproaching = conflict?.conflict == TrainConflict.approaching;
-                final isOtherLine = conflict?.conflict == TrainConflict.otherLine;
+                final isApproaching =
+                    conflict?.conflict == TrainConflict.approaching;
+                final isOtherLine =
+                    conflict?.conflict == TrainConflict.otherLine;
                 final alongDist = alongTrackDistances?[t.unitId];
                 final dist = t.distanceFrom(fromLat, fromLon);
 
                 String distLabel;
                 if (isOtherLine) {
-                  distLabel = dist == null ? 'other line' : '${formatDistance(dist)} (other line)';
+                  distLabel = dist == null
+                      ? 'other line'
+                      : '${formatDistance(dist)} (other line)';
                 } else if (alongDist != null) {
                   distLabel = '${formatDistance(alongDist)} along line';
                 } else {
@@ -667,7 +983,9 @@ Future<OtherTrain?> showTrainList(
 
                 final kmh = t.speedKmh;
                 final speedLabel = kmh == null ? '' : '  ·  $kmh km/h';
-                final driverLabel = t.driverName.isEmpty ? t.unitId : '${t.driverName} (${t.unitId})';
+                final driverLabel = t.driverName.isEmpty
+                    ? t.unitId
+                    : '${t.driverName} (${t.unitId})';
                 final circleColor = isApproaching
                     ? const Color(0xFF5E35B1)
                     : (live ? RG.blue : RG.info);
@@ -689,12 +1007,21 @@ Future<OtherTrain?> showTrainList(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text('${t.trainLabel}  ·  $distLabel$speedLabel', style: TS.bodyStrong),
+                              Text(
+                                '${t.trainLabel}  ·  $distLabel$speedLabel',
+                                style: TS.bodyStrong,
+                              ),
                               if (isApproaching)
                                 Padding(
-                                  padding: const EdgeInsets.only(top: 2, bottom: 2),
+                                  padding: const EdgeInsets.only(
+                                    top: 2,
+                                    bottom: 2,
+                                  ),
                                   child: Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 6,
+                                      vertical: 2,
+                                    ),
                                     decoration: BoxDecoration(
                                       color: const Color(0xFFEDE7F6),
                                       borderRadius: BorderRadius.circular(4),
@@ -718,7 +1045,11 @@ Future<OtherTrain?> showTrainList(
                             ],
                           ),
                         ),
-                        const Icon(Icons.chevron_right_rounded, color: RG.textDim, size: 22),
+                        const Icon(
+                          Icons.chevron_right_rounded,
+                          color: RG.textDim,
+                          size: 22,
+                        ),
                       ],
                     ),
                   ),

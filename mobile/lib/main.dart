@@ -15,8 +15,13 @@ import 'package:flutter/services.dart' show rootBundle;
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
+import 'account.dart';
 import 'alarm.dart';
 import 'driver.dart';
+import 'l10n/app_localizations.dart';
+import 'lifecycle.dart';
+import 'locale_store.dart';
+import 'offline.dart';
 import 'railway.dart';
 import 'sim.dart';
 import 'trains.dart';
@@ -51,37 +56,44 @@ class _RailGuardAppState extends State<RailGuardApp> {
   }
 
   @override
-  Widget build(BuildContext context) => MaterialApp(
-    title: 'RailGuard',
-    debugShowCheckedModeBanner: false,
-    theme: railGuardTheme(),
-    home: switch (_route) {
-      null => SplashScreen(
-          onReady: (route, p) => setState(() {
-            _signedIn = p;
-            _route = route;
-          }),
-        ),
-      SplashRoute.login => LoginScreen(
-          onLoggedIn: (p) => setState(() {
-            _signedIn = p;
-            _route = SplashRoute.map;
-          }),
-          onGoToRegister: () => setState(() => _route = SplashRoute.register),
-        ),
-      SplashRoute.register => RegisterScreen(
-          existing: _signedIn,
-          onDone: (p) => setState(() {
-            _signedIn = p;
-            _route = SplashRoute.map;
-          }),
-          onBackToLogin: () => setState(() => _route = SplashRoute.login),
-        ),
-      SplashRoute.map => HomeScreen(
-          key: ValueKey(_signedIn?.unitId ?? defaultUnitId),
-          onSignOut: _onSignOut,
-        ),
-    },
+  Widget build(BuildContext context) => ValueListenableBuilder<Locale?>(
+    valueListenable: appLocaleNotifier,
+    builder: (context, locale, _) => MaterialApp(
+      title: 'RailGuard',
+      debugShowCheckedModeBanner: false,
+      locale: locale,
+      supportedLocales: AppLocalizations.supportedLocales,
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      localeResolutionCallback: (device, _) => resolveAppLocale(device),
+      theme: railGuardTheme(locale: locale),
+      home: switch (_route) {
+        null => SplashScreen(
+            onReady: (route, p) => setState(() {
+              _signedIn = p;
+              _route = route;
+            }),
+          ),
+        SplashRoute.login => LoginScreen(
+            onLoggedIn: (p) => setState(() {
+              _signedIn = p;
+              _route = SplashRoute.map;
+            }),
+            onGoToRegister: () => setState(() => _route = SplashRoute.register),
+          ),
+        SplashRoute.register => RegisterScreen(
+            existing: _signedIn,
+            onDone: (p) => setState(() {
+              _signedIn = p;
+              _route = SplashRoute.map;
+            }),
+            onBackToLogin: () => setState(() => _route = SplashRoute.login),
+          ),
+        SplashRoute.map => HomeScreen(
+            key: ValueKey(_signedIn?.unitId ?? defaultUnitId),
+            onSignOut: _onSignOut,
+          ),
+      },
+    ),
   );
 }
 
@@ -129,11 +141,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   String? _hazardProblem; // Firestore read error, if any
   List<HazardWarning> _ahead = []; // hazards ahead in range, most urgent first
   final _tracker = AlertTracker(); // which level has sounded for each hazard
+  final _passTracker = HazardPassTracker(); // detects passing within 100 m then past a hazard
+  final List<Hazard> _pendingPassPrompts = []; // queued "Still there?" prompts
+  bool _passPromptOpen = false;
+  final _uploadGate = PositionUploadGate(); // quota discipline: > 10 m or 30 s
+  late final FeedFreshnessTracker _freshness = FeedFreshnessTracker(startedAt: DateTime.now());
+  final _pendingReports = PendingReportTracker(); // queued reports awaiting server confirmation
   final _alarm = Alarm();
   final Set<String> _acknowledged = {}; // STOP alerts the driver has acknowledged
   Timer? _recheck; // re-runs the check while standing still
-  Timer? _positionUpload; // train_position every 5 s
-  Timer? _clock; // refreshes "updated ... ago" once a second
+  Timer? _positionUpload; // 5 s moving cadence, gated by _uploadGate
+  Timer? _freshnessProbe; // periodic server check when feeds are quiet
+  Timer? _clock; // refreshes "updated ... ago" and stale age once a second
   bool _saving = false;
 
   // Other trains on the line (map presence only; never feeds into alerting)
@@ -187,8 +206,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
     WidgetsBinding.instance.addPostFrameCallback((_) => _makeIcons());
     _positionUpload = Timer.periodic(positionUploadInterval, (_) => _uploadPosition());
+    _freshnessProbe = Timer.periodic(const Duration(seconds: 25), (_) => _probeServerFreshness());
     _clock = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted && _pos != null) setState(() {});
+      if (mounted &&
+          (_pos != null || _freshness.isStale(DateTime.now()) || _pendingReports.hasPending)) {
+        setState(() {});
+      }
     });
   }
 
@@ -208,6 +231,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _trainSub?.cancel();
     _recheck?.cancel();
     _positionUpload?.cancel();
+    _freshnessProbe?.cancel();
     _clock?.cancel();
     _alarm.dispose();
     _map?.dispose();
@@ -281,23 +305,28 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   void _onPosition(Position pos) {
     if (!mounted) return;
+    final firstFix = _uploadGate.lastUploadedAt == null;
     setState(() {
       _pos = pos;
       _gpsProblem = null;
       _lastHeading = usableHeading(pos.heading, pos.speed) ?? _lastHeading;
     });
+    if (firstFix) _uploadPosition();
     _updateWarning();
     if (_follow || !_centred) _moveTo(LatLng(pos.latitude, pos.longitude));
   }
 
   /// One document per unit, overwritten: where this train is now, for the
   /// laptop to place the hazards its camera finds and for other trains to see
-  /// on the map. Not awaited: with no signal Firestore keeps the latest write
-  /// and sends it when it can.
+  /// on the map. Gated by [_uploadGate] (> 10 m moved or 30 s elapsed) on a
+  /// 5-second moving cadence so standing trains do not exhaust the Firestore
+  /// write quota.
   void _uploadPosition() {
     final pos = _pos;
     if (pos == null) return; // no fix: send nothing rather than a stale or wrong position
     if (simMode) return; // never let the laptop place hazards from simulated positions
+    final now = DateTime.now();
+    if (!_uploadGate.tryUpload(lat: pos.latitude, lon: pos.longitude, now: now)) return;
     FirebaseFirestore.instance
         .collection('train_position')
         .doc(unitId)
@@ -318,16 +347,54 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         .catchError((Object e) => debugPrint('train_position upload failed: $e'));
   }
 
+  /// Lightweight server freshness probe run every 25 s when a feed has been
+  /// quiet, so an online phone with no recent changes never shows a false
+  /// "No signal" banner, while an offline phone stops refreshing and shows
+  /// stale age past 60 s.
+  Future<void> _probeServerFreshness() async {
+    final now = DateTime.now();
+    if (_freshness.hazardAge(now) >= const Duration(seconds: 25)) {
+      try {
+        await FirebaseFirestore.instance
+            .collection('hazards')
+            .where('status', isEqualTo: 'active')
+            .limit(1)
+            .get(const GetOptions(source: Source.server))
+            .timeout(const Duration(seconds: 5));
+        _freshness.recordHazardServerUpdate(DateTime.now());
+        if (mounted) setState(() {});
+      } catch (_) {
+        // Offline or unreachable: leave lastHazardServerUpdate unchanged.
+      }
+    }
+    if (_freshness.trainAge(now) >= const Duration(seconds: 25)) {
+      try {
+        await FirebaseFirestore.instance
+            .collection('train_position')
+            .limit(1)
+            .get(const GetOptions(source: Source.server))
+            .timeout(const Duration(seconds: 5));
+        _freshness.recordTrainServerUpdate(DateTime.now());
+        if (mounted) setState(() {});
+      } catch (_) {
+        // Offline or unreachable: leave lastTrainServerUpdate unchanged.
+      }
+    }
+  }
+
   // ------------------------------------------------------------ trains
 
   /// Keeps [_trains] in step with the `train_position` collection in Firestore.
   void _startTrains() {
     _trainSub = FirebaseFirestore.instance
         .collection('train_position')
-        .snapshots()
+        .snapshots(includeMetadataChanges: true)
         .listen(
           (snap) {
             if (!mounted) return;
+            if (!snap.metadata.isFromCache) {
+              _freshness.recordTrainServerUpdate(DateTime.now());
+            }
             setState(() {
               _trains = [for (final doc in snap.docs) ?_parseTrain(doc.id, doc.data())];
               _trainProblem = null;
@@ -483,10 +550,30 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _hazardSub = FirebaseFirestore.instance
         .collection('hazards')
         .where('status', isEqualTo: 'active')
-        .snapshots()
+        .snapshots(includeMetadataChanges: true)
         .listen(
           (snap) {
-            _hazards = [for (final doc in snap.docs) ?_parseHazard(doc.id, doc.data())];
+            final now = DateTime.now();
+            if (!snap.metadata.isFromCache) {
+              _freshness.recordHazardServerUpdate(now);
+            }
+            final parsed = <Hazard>[];
+            for (final doc in snap.docs) {
+              final data = doc.data();
+              final isOwnDriverReport =
+                  data['reported_by'] == 'driver' && data['unit_id'] == unitId;
+              if (doc.metadata.hasPendingWrites && isOwnDriverReport) {
+                final t = data['timestamp'];
+                final queuedAt = t is Timestamp ? t.toDate() : now;
+                _pendingReports.markPending(doc.id, queuedAt);
+              } else if (!doc.metadata.hasPendingWrites && !snap.metadata.isFromCache) {
+                _pendingReports.confirmSent(doc.id);
+              }
+              final pending = doc.metadata.hasPendingWrites || _pendingReports.isPending(doc.id);
+              final h = _parseHazard(doc.id, data, pendingSend: pending);
+              if (h != null) parsed.add(h);
+            }
+            _hazards = parsed;
             _hazardProblem = null;
             _updateWarning();
           },
@@ -499,11 +586,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _recheck = Timer.periodic(const Duration(seconds: 15), (_) => _updateWarning());
   }
 
+  static List<String> _stringList(dynamic raw) {
+    if (raw is! List) return const [];
+    return [for (final v in raw) if (v is String && v.isNotEmpty) v];
+  }
+
   /// A Firestore document as a Hazard, or null if it has no usable position.
-  static Hazard? _parseHazard(String id, Map<String, dynamic> d) {
+  static Hazard? _parseHazard(String id, Map<String, dynamic> d, {bool pendingSend = false}) {
     final lat = d['latitude'], lon = d['longitude'];
     if (lat is! num || lon is! num) return null;
     final t = d['timestamp'];
+    final clearedT = d['cleared_at'];
     final reportedBy = (d['reported_by'] as String?) ?? '';
     final dist = d['distance_m'], conf = d['confidence'];
     return Hazard(
@@ -518,17 +611,29 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       unitId: d['unit_id'] as String?,
       cameraDistanceM: reportedBy == 'auto' && dist is num ? dist.toDouble() : null,
       confidence: conf is num ? conf.toDouble() : null,
+      status: (d['status'] as String?) ?? 'active',
+      reportedByUid: d['reported_by_uid'] as String?,
+      confirmedByUids: _stringList(d['confirmed_by_uids']),
+      notSeenByUids: _stringList(d['not_seen_by_uids']),
+      clearedByUids: _stringList(d['cleared_by_uids']),
+      clearedBy: d['cleared_by'] as String?,
+      clearedByUid: d['cleared_by_uid'] as String?,
+      clearedAt: clearedT is Timestamp
+          ? clearedT.toDate()
+          : (clearedT is String ? DateTime.tryParse(clearedT) : null),
+      pendingSend: pendingSend,
     );
   }
 
   /// Recomputes the alerts, and sounds each new level once.
   void _updateWarning() {
     final pos = _pos;
+    final now = DateTime.now();
 
     // Track position and travel direction along the route
     final net = _railNetwork;
     if (net != null && pos != null) {
-      final curPos = net.snap(pos.latitude, pos.longitude);
+      final curPos = net.snap(pos.latitude, pos.longitude, gpsAccuracyM: pos.accuracy);
       if (curPos != null) {
         if (_prevTrackPos != null && _prevTrackPos!.routeId == curPos.routeId) {
           final diff = curPos.chainageM - _prevTrackPos!.chainageM;
@@ -561,7 +666,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             lon: pos.longitude,
             headingDeg: usableHeading(pos.heading, pos.speed),
             hazards: others,
-            now: DateTime.now(),
+            now: now,
             network: _railNetwork,
             travelDirection: _travelDir,
             gpsAccuracyM: pos.accuracy,
@@ -573,6 +678,27 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         !raised.any((w) => w.level == AlertLevel.stop)) {
       _alarm.caution();
     }
+
+    // Detect hazards passed within 100 m and now behind us along the track.
+    if (pos != null) {
+      final passed = _passTracker.checkPassed(
+        lat: pos.latitude,
+        lon: pos.longitude,
+        travelDirection: _travelDir,
+        hazards: _hazards,
+        now: now,
+        network: _railNetwork,
+        gpsAccuracyM: pos.accuracy,
+        ownUid: currentUid,
+        ownUnitId: unitId,
+      );
+      for (final h in passed) {
+        if (!_pendingPassPrompts.any((p) => p.id == h.id)) {
+          _pendingPassPrompts.add(h);
+        }
+      }
+    }
+
     if (!mounted) return;
     setState(() => _ahead = ahead);
     // The alarm rings while an unacknowledged STOP is on screen; it stops by
@@ -581,12 +707,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _alarm.startStop();
     } else {
       _alarm.stopStop();
+      _drainPassPrompts();
     }
   }
 
   void _acknowledge(HazardWarning w) {
     setState(() => _acknowledged.add(w.hazard.id));
-    if (_stopAlert == null) _alarm.stopStop();
+    if (_stopAlert == null) {
+      _alarm.stopStop();
+      _drainPassPrompts();
+    }
     // Recorded, to show the alert reached the driver. Does not clear the hazard.
     FirebaseFirestore.instance
         .collection('acknowledgements')
@@ -678,35 +808,89 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (choice == null || !mounted) return; // closed without choosing
     final (objectType, severity) = choice;
     final label = typeInfo(objectType).label;
+    final now = DateTime.now();
+    final docRef = FirebaseFirestore.instance.collection('hazards').doc();
+    setState(() => _pendingReports.markPending(docRef.id, now));
+    final writeFuture = docRef.set({
+      'latitude': pos.latitude,
+      'longitude': pos.longitude,
+      'timestamp': Timestamp.fromDate(now),
+      'object_type': objectType,
+      'severity': severity,
+      'distance_m': 0,
+      'status': 'active',
+      'reported_by': 'driver',
+      'reported_by_uid': currentUid ?? unitId,
+      'unit_id': unitId,
+      'confirmed_by_uids': const <String>[],
+      'not_seen_by_uids': const <String>[],
+      'cleared_by_uids': const <String>[],
+    }).then((_) {
+      _pendingReports.confirmSent(docRef.id);
+      if (mounted) setState(() {});
+    });
     await _write(
-      FirebaseFirestore.instance.collection('hazards').add({
-        'latitude': pos.latitude,
-        'longitude': pos.longitude,
-        'timestamp': Timestamp.now(),
-        'object_type': objectType,
-        'severity': severity,
-        'distance_m': 0,
-        'status': 'active',
-        'reported_by': 'driver',
-        'unit_id': unitId,
-      }),
+      writeFuture,
       '$label reported (${severity == 'blocked' ? 'line blocked' : 'near the line'})',
-      '$label saved on the phone; uploads when signal returns',
+      '$label saved on the phone — not yet sent; uploads when signal returns',
     );
+  }
+
+  /// Applies a driver's Cleared / Still there / Did not see answer via Firestore
+  /// `.update(...)`. Never deletes a hazard document.
+  Future<void> _submitHazardAnswer(Hazard h, HazardPassAnswer answer) async {
+    _passTracker.markPrompted(h.id);
+    // Use the freshest snapshot of this hazard if still in the active feed.
+    final latest = _hazards.cast<Hazard?>().firstWhere(
+          (item) => item?.id == h.id,
+          orElse: () => h,
+        ) ??
+        h;
+    final now = DateTime.now();
+    final result = applyHazardAnswer(
+      hazard: latest,
+      answer: answer,
+      driverUid: currentUid ?? unitId,
+      unitId: unitId,
+      now: now,
+      firestoreTimestamp: Timestamp.fromDate(now),
+    );
+    await _write(
+      FirebaseFirestore.instance.collection('hazards').doc(latest.id).update(result.firestoreUpdate),
+      result.feedbackMessage,
+      'Saved on the phone; uploads when signal returns',
+    );
+  }
+
+  /// Displays queued "Still there?" prompts one at a time when no STOP alert is active.
+  void _drainPassPrompts() {
+    if (_passPromptOpen || _stopAlert != null || _pendingPassPrompts.isEmpty || !mounted) return;
+    _passPromptOpen = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      try {
+        while (mounted && _stopAlert == null && _pendingPassPrompts.isNotEmpty) {
+          final next = _pendingPassPrompts.removeAt(0);
+          final latest = _hazards.cast<Hazard?>().firstWhere(
+                (item) => item?.id == next.id,
+                orElse: () => null,
+              );
+          if (latest == null || !isHazardActiveOnMap(latest, DateTime.now())) continue;
+          if (!mounted) return;
+          final answer = await showStillTherePrompt(context, hazard: latest);
+          if (answer != null && mounted) {
+            await _submitHazardAnswer(latest, answer);
+          }
+        }
+      } finally {
+        _passPromptOpen = false;
+      }
+    });
   }
 
   Future<void> _showHazard(Hazard h) async {
     final clear = await showHazardDetail(context, row: _row(h));
     if (!clear || !mounted) return;
-    await _write(
-      FirebaseFirestore.instance.collection('hazards').doc(h.id).update({
-        'status': 'cleared',
-        'cleared_at': Timestamp.now(),
-        'cleared_by': unitId,
-      }),
-      '${typeInfo(h.objectType).label} cleared',
-      'Cleared on the phone; uploads when signal returns',
-    );
+    await _submitHazardAnswer(h, HazardPassAnswer.cleared);
   }
 
   Future<void> _showList() async {
@@ -759,10 +943,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final dpr = MediaQuery.of(context).devicePixelRatio;
     final icons = <String, BitmapDescriptor>{};
     // One pin per hazard type and alert level; 'other' covers unknown types.
+    // Also pre-render a "not yet sent" badged pin for offline queued reports.
     for (final t in [...hazardTypes, typeInfo('other')]) {
       for (final level in AlertLevel.values) {
         final colour = level == AlertLevel.none ? t.colour : levelColour(level);
         icons['${t.id}/${level.name}'] = await hazardPin(t.icon, colour, dpr);
+        icons['${t.id}/${level.name}/pending'] = await pendingHazardPin(t.icon, colour, dpr);
       }
     }
     final train = await BitmapDescriptor.asset(
@@ -795,14 +981,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       final known = hazardTypes.any((t) => t.id == h.objectType);
       final key = known ? h.objectType : 'other';
       final level = levels[h.id] ?? AlertLevel.none;
+      final suffix = h.pendingSend ? '/pending' : '';
       markers.add(
         Marker(
-          // Level in the id: the map plugin does not always redraw a marker
-          // whose icon alone changed, so a new id forces the swap.
-          markerId: MarkerId('${h.id}/${level.name}'),
+          // Level & pending state in the id: forces Google Maps to redraw when icon swaps.
+          markerId: MarkerId('${h.id}/${level.name}$suffix'),
           position: LatLng(h.latitude, h.longitude),
-          icon: _icons['$key/${level.name}'] ?? BitmapDescriptor.defaultMarker,
+          icon: _icons['$key/${level.name}$suffix'] ?? BitmapDescriptor.defaultMarker,
           anchor: const Offset(0.5, 1.0),
+          zIndexInt: h.pendingSend ? 3 : 0,
           consumeTapEvents: true,
           onTap: () => _showHazard(h),
         ),
@@ -915,11 +1102,20 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               child: Column(
                 children: [
                   _topBar(),
+                  _staleOfflineBanner(),
+                  _pendingOverdueBanner(),
                   Align(
                     alignment: Alignment.centerLeft,
                     child: Padding(
                       padding: const EdgeInsets.only(left: 12, bottom: 4),
-                      child: _trainsChip(),
+                      child: Wrap(
+                        spacing: 8,
+                        runSpacing: 6,
+                        children: [
+                          _trainsChip(),
+                          _pendingReportsChip(),
+                        ],
+                      ),
                     ),
                   ),
                   Expanded(
@@ -1078,6 +1274,117 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
+  /// Persistent offline banner shown whenever either feed is more than 60 s stale.
+  /// Always names the age and sits at the top of the overlay stack so it never
+  /// disappears behind other UI.
+  Widget _staleOfflineBanner() {
+    final now = DateTime.now();
+    if (!_freshness.isStale(now)) return const SizedBox.shrink();
+    final l10n = AppLocalizations.of(context)!;
+    final text = l10n.bannerNoSignal(staleAgeText(_freshness.oldestFeedAge(now)));
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(12, 0, 12, 6),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFB45309),
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: cardShadow,
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.signal_wifi_off_rounded, color: Colors.white, size: 18),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 12.5,
+                fontWeight: FontWeight.w700,
+                fontFamilyFallback: scriptFontFallbacks,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Plain warning banner when a locally queued report has still not gone out
+  /// after 5 minutes — prevents the driver from believing trains behind were warned.
+  Widget _pendingOverdueBanner() {
+    final text = _pendingReports.overdueWarningText(DateTime.now());
+    if (text == null) return const SizedBox.shrink();
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(12, 0, 12, 6),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: RG.brand,
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: cardShadow,
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.error_outline_rounded, color: Colors.white, size: 18),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 12.5,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Top-bar area chip showing how many driver reports are waiting to send.
+  Widget _pendingReportsChip() {
+    if (!_pendingReports.hasPending) return const SizedBox.shrink();
+    final l10n = AppLocalizations.of(context)!;
+    final label = _pendingReports.count == 1
+        ? l10n.pendingWaitingSingle
+        : l10n.pendingWaitingPlural(_pendingReports.count);
+    return Material(
+      color: const Color(0xFFFEF3C7),
+      borderRadius: BorderRadius.circular(20),
+      elevation: 0,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(20),
+        onTap: _showList,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: const Color(0xFFD97706), width: 1.2),
+            boxShadow: cardShadow,
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.cloud_upload_outlined, size: 16, color: Color(0xFF92400E)),
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: TS.label.copyWith(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: const Color(0xFF92400E),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   /// Small chip below the top bar showing how many other trains are on the line
   /// (or "Train feed offline" in amber if the Firestore stream fails).
   Widget _trainsChip() {
@@ -1153,37 +1460,60 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   /// Quick report: one tap on a type goes straight to the severity choice.
-  Widget _quickReportRail() => Container(
-    width: 70,
-    padding: const EdgeInsets.symmetric(vertical: 10),
-    decoration: BoxDecoration(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(22),
-      boxShadow: cardShadow,
-    ),
-    child: Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        const Text('REPORT', style: TextStyle(fontSize: 9, letterSpacing: 1, color: RG.textDim)),
-        const SizedBox(height: 4),
-        for (final t in hazardTypes)
-          InkWell(
-            borderRadius: BorderRadius.circular(14),
-            onTap: _saving ? null : () => _report(type: t),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 7),
-              child: Column(
-                children: [
-                  iconCircle(t.icon, t.colour, size: 40),
-                  const SizedBox(height: 4),
-                  Text(t.label, style: TS.label, maxLines: 1, overflow: TextOverflow.fade),
-                ],
+  Widget _quickReportRail() {
+    final l10n = AppLocalizations.of(context)!;
+    return Container(
+      width: 74,
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        boxShadow: cardShadow,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 6),
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                l10n.btnReport,
+                maxLines: 1,
+                style: const TextStyle(
+                  fontSize: 9,
+                  letterSpacing: 0.6,
+                  color: RG.textDim,
+                  fontFamilyFallback: scriptFontFallbacks,
+                ),
               ),
             ),
           ),
-      ],
-    ),
-  );
+          const SizedBox(height: 4),
+          for (final t in hazardTypes)
+            InkWell(
+              borderRadius: BorderRadius.circular(14),
+              onTap: _saving ? null : () => _report(type: t),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 7, horizontal: 3),
+                child: Column(
+                  children: [
+                    iconCircle(t.icon, t.colour, size: 40),
+                    const SizedBox(height: 4),
+                    Text(
+                      localizedHazardType(l10n, t.id),
+                      style: TS.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
 
   Widget _approachingTrainBanner(OtherTrain t, TrainConflictInfo c) {
     return InkWell(
@@ -1207,13 +1537,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 children: [
                   Row(
                     children: [
-                      const Text(
-                        'TRAIN CONFLICT ADVISORY',
-                        style: TextStyle(
-                          color: Color(0xFF311B92),
-                          fontSize: 11,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: 0.5,
+                      Flexible(
+                        child: Text(
+                          AppLocalizations.of(context)!.advisoryTrainConflict,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Color(0xFF311B92),
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 0.5,
+                            fontFamilyFallback: scriptFontFallbacks,
+                          ),
                         ),
                       ),
                       const SizedBox(width: 6),
@@ -1357,41 +1691,68 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     String title, subtitle;
     var tag = '';
 
+    final l10n = AppLocalizations.of(context)!;
     if (w != null) {
       final t = typeInfo(w.hazard.objectType);
-      final s = severityInfo(w.hazard);
+      final typeLabel = localizedHazardType(l10n, w.hazard.objectType);
+      final sevLabel = localizedSeverity(l10n, w.hazard);
       icon = t.icon;
       iconColour = levelColour(w.level);
       if (w.onAnotherLine) {
-        title = '${t.label}  ·  ${formatDistance(w.distanceM)}';
-        subtitle = '${s.label}  ·  on another line';
+        title = '$typeLabel  ·  ${formatDistance(w.distanceM)}';
+        subtitle = '$sevLabel  ·  on another line';
       } else if (w.alongTrack) {
-        title = '${t.label}  ·  ${formatDistance(w.distanceM)} along the line';
-        subtitle = '${s.label}  ·  ${w.headingKnown ? 'ahead' : 'direction unknown'}';
+        title = '$typeLabel  ·  ${formatDistance(w.distanceM)} along the line';
+        subtitle = '$sevLabel  ·  ${w.headingKnown ? l10n.stopAhead : l10n.stopDirectionUnknown}';
       } else {
-        title = '${t.label}  ·  ${formatDistance(w.distanceM)}';
-        subtitle = '${s.label}  ·  ${w.headingKnown ? 'ahead' : 'direction unknown'}';
+        title = '$typeLabel  ·  ${formatDistance(w.distanceM)}';
+        subtitle = '$sevLabel  ·  ${w.headingKnown ? l10n.stopAhead : l10n.stopDirectionUnknown}';
       }
-      tag = levelName(w.level);
+      tag = localizedAlertLevel(l10n, w.level);
       if (w.level == AlertLevel.stop || w.level == AlertLevel.caution) {
         bg = iconColour;
         fg = Colors.white;
         dim = Colors.white.withValues(alpha: 0.85);
       }
-    } else if (_hazardProblem != null || pos == null) {
-      icon = _hazardProblem != null ? Icons.cloud_off_rounded : Icons.gps_off_rounded;
-      iconColour = RG.warn;
-      title = 'Hazards not checked';
-      subtitle = _hazardProblem ?? _gpsProblem ?? 'No GPS position';
-      bg = RG.warn;
-      fg = Colors.white;
-      dim = Colors.white.withValues(alpha: 0.9);
     } else {
-      icon = Icons.verified_user_rounded;
-      iconColour = RG.blue;
-      title = 'No hazards ahead';
-      subtitle = n == 0 ? 'Line clear within 3 km' : '$n active report${n == 1 ? '' : 's'} nearby';
-      tag = 'CLEAR';
+      final now = DateTime.now();
+      final stale = _freshness.isStale(now);
+      final staleAge = stale ? _freshness.oldestFeedAge(now) : null;
+      final status = resolveNoHazardStatus(
+        feedIsStale: stale,
+        staleAge: staleAge,
+        hazardProblem: _hazardProblem,
+        hasGps: pos != null,
+        gpsProblem: _gpsProblem,
+        nearbyCount: n,
+      );
+      if (stale) {
+        title = l10n.statusCannotCheckNoSignal;
+        subtitle = staleAge != null
+            ? l10n.statusCachedDataOnly(staleAgeText(staleAge))
+            : status.subtitle;
+        tag = '';
+      } else if (!status.isAmberWarning) {
+        title = l10n.statusNoHazardsAhead;
+        subtitle = n == 0 ? l10n.statusLineClear3km : status.subtitle;
+        tag = l10n.statusClearTag;
+      } else {
+        title = status.title;
+        subtitle = status.subtitle;
+        tag = status.tag;
+      }
+      if (status.isAmberWarning) {
+        icon = stale
+            ? Icons.signal_wifi_off_rounded
+            : (_hazardProblem != null ? Icons.cloud_off_rounded : Icons.gps_off_rounded);
+        iconColour = RG.warn;
+        bg = RG.warn;
+        fg = Colors.white;
+        dim = Colors.white.withValues(alpha: 0.9);
+      } else {
+        icon = Icons.verified_user_rounded;
+        iconColour = RG.blue;
+      }
     }
     final filled = bg != Colors.white;
     final now = DateTime.now();
@@ -1428,7 +1789,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       children: [
                         Text(
                           title,
-                          maxLines: 1,
+                          maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: fg),
                         ),
@@ -1533,6 +1894,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   /// Follow, the red REPORT button raised in the middle, and Speed.
   Widget _bottomBar() {
+    final l10n = AppLocalizations.of(context)!;
     final pos = _pos;
     final speed = pos == null || pos.speed < 0 ? 'Speed' : '${(pos.speed * 3.6).round()} km/h';
     return SizedBox(
@@ -1554,7 +1916,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 children: [
                   _navItem(
                     Icons.navigation_rounded,
-                    'Follow',
+                    l10n.btnFollow,
                     active: _follow,
                     onTap: () {
                       setState(() => _follow = !_follow);
@@ -1593,17 +1955,25 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         padding: EdgeInsets.all(26),
                         child: CircularProgressIndicator(strokeWidth: 3, color: Colors.white),
                       )
-                    : const Column(
+                    : Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(Icons.campaign_rounded, color: Colors.white, size: 28),
-                          Text(
-                            'REPORT',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                              letterSpacing: 0.8,
+                          const Icon(Icons.campaign_rounded, color: Colors.white, size: 28),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 6),
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Text(
+                                l10n.btnReport,
+                                maxLines: 1,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: 0.5,
+                                  fontFamilyFallback: scriptFontFallbacks,
+                                ),
+                              ),
                             ),
                           ),
                         ],

@@ -4,6 +4,8 @@
 
 import 'package:flutter/material.dart';
 
+import '../l10n/app_localizations.dart';
+import '../locale_store.dart';
 import '../warning.dart';
 import 'theme.dart';
 
@@ -20,11 +22,11 @@ class StopAlert extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final h = warning.hazard;
     final t = typeInfo(h.objectType);
-    final s = severityInfo(h);
     final time = h.time;
-    const white = TextStyle(color: Colors.white);
+    const white = TextStyle(color: Colors.white, fontFamilyFallback: scriptFontFallbacks);
     return Material(
       color: RG.danger,
       child: SafeArea(
@@ -58,11 +60,11 @@ class StopAlert extends StatelessWidget {
               ),
               const SizedBox(height: 18),
               Text(
-                s.label.toUpperCase(),
+                h.blocked ? l10n.stopLineBlocked : l10n.stopNearLine,
                 textAlign: TextAlign.center,
                 style: white.copyWith(fontSize: 22, fontWeight: FontWeight.w600, letterSpacing: 1),
               ),
-              Text(t.label, style: white.copyWith(fontSize: 16)),
+              Text(localizedHazardType(l10n, h.objectType), style: white.copyWith(fontSize: 16)),
               const SizedBox(height: 24),
               Text(
                 formatDistance(warning.distanceM),
@@ -71,11 +73,11 @@ class StopAlert extends StatelessWidget {
               const SizedBox(height: 6),
               Text(
                 warning.alongTrack
-                    ? 'ALONG THE LINE'
+                    ? l10n.stopAlongLine
                     : (warning.onAnotherLine
                         ? 'ON ANOTHER LINE'
-                        : (warning.headingKnown ? 'AHEAD' : 'DIRECTION UNKNOWN')),
-                style: white.copyWith(fontSize: 16, fontWeight: FontWeight.w500, letterSpacing: 2),
+                        : (warning.headingKnown ? l10n.stopAhead : l10n.stopDirectionUnknown)),
+                style: white.copyWith(fontSize: 16, fontWeight: FontWeight.w500, letterSpacing: 1.5),
               ),
               const SizedBox(height: 24),
               if (time != null)
@@ -96,9 +98,14 @@ class StopAlert extends StatelessWidget {
                     shape: const StadiumBorder(),
                   ),
                   onPressed: onAcknowledge,
-                  child: const Text(
-                    'ACKNOWLEDGE',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, letterSpacing: 1),
+                  child: Text(
+                    l10n.btnAcknowledge,
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 1,
+                      fontFamilyFallback: scriptFontFallbacks,
+                    ),
                   ),
                 ),
               ),

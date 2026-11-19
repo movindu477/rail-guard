@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import '../account.dart';
 import '../driver.dart';
 import '../firebase_options.dart';
+import '../locale_store.dart';
 import 'theme.dart';
 
 /// Minimum time the splash stays visible so fast startups never flicker.
@@ -46,6 +47,13 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 
   Future<(SplashRoute, DriverProfile?)> _resolveDestination() async {
+    try {
+      final savedLocale = await loadSavedLocale();
+      if (savedLocale != null) {
+        appLocaleNotifier.value = savedLocale;
+      }
+    } catch (_) {}
+
     try {
       if (Firebase.apps.isEmpty) {
         await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);

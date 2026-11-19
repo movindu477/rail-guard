@@ -6,6 +6,8 @@
 
 import 'package:flutter/material.dart';
 
+import '../l10n/app_localizations.dart';
+import '../locale_store.dart';
 import '../warning.dart';
 
 class RG {
@@ -28,20 +30,51 @@ class RG {
 /// One text scale for the whole app: medium weights, bold only where a
 /// glance must catch it (alert distance).
 class TS {
-  static const title = TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: RG.text);
-  static const body = TextStyle(fontSize: 14, fontWeight: FontWeight.w400, color: RG.text);
-  static const bodyStrong = TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: RG.text);
-  static const small = TextStyle(fontSize: 12, fontWeight: FontWeight.w400, color: RG.textDim);
-  static const label = TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: RG.text);
-  static const button = TextStyle(fontSize: 16, fontWeight: FontWeight.w600);
+  static const title = TextStyle(
+    fontSize: 16,
+    fontWeight: FontWeight.w600,
+    color: RG.text,
+    fontFamilyFallback: scriptFontFallbacks,
+  );
+  static const body = TextStyle(
+    fontSize: 14,
+    fontWeight: FontWeight.w400,
+    color: RG.text,
+    fontFamilyFallback: scriptFontFallbacks,
+  );
+  static const bodyStrong = TextStyle(
+    fontSize: 15,
+    fontWeight: FontWeight.w600,
+    color: RG.text,
+    fontFamilyFallback: scriptFontFallbacks,
+  );
+  static const small = TextStyle(
+    fontSize: 12,
+    fontWeight: FontWeight.w400,
+    color: RG.textDim,
+    fontFamilyFallback: scriptFontFallbacks,
+  );
+  static const label = TextStyle(
+    fontSize: 11,
+    fontWeight: FontWeight.w500,
+    color: RG.text,
+    fontFamilyFallback: scriptFontFallbacks,
+  );
+  static const button = TextStyle(
+    fontSize: 16,
+    fontWeight: FontWeight.w600,
+    fontFamilyFallback: scriptFontFallbacks,
+  );
 }
 
 /// Soft drop shadow for the floating cards and buttons.
 const cardShadow = [BoxShadow(color: RG.shadow, blurRadius: 14, offset: Offset(0, 4))];
 
-ThemeData railGuardTheme() => ThemeData(
+ThemeData railGuardTheme({Locale? locale}) => ThemeData(
   useMaterial3: true,
   brightness: Brightness.light,
+  fontFamily: fontFamilyForLocale(locale),
+  fontFamilyFallback: scriptFontFallbacks,
   scaffoldBackgroundColor: RG.bg,
   colorScheme: const ColorScheme.light(
     primary: RG.blue,
@@ -52,7 +85,11 @@ ThemeData railGuardTheme() => ThemeData(
   snackBarTheme: const SnackBarThemeData(
     behavior: SnackBarBehavior.floating,
     backgroundColor: RG.pill,
-    contentTextStyle: TextStyle(color: Colors.white, fontSize: 14),
+    contentTextStyle: TextStyle(
+      color: Colors.white,
+      fontSize: 14,
+      fontFamilyFallback: scriptFontFallbacks,
+    ),
   ),
 );
 
@@ -155,6 +192,31 @@ String levelName(AlertLevel l) => switch (l) {
   AlertLevel.info => 'INFO',
   AlertLevel.none => '',
 };
+
+/// Localized alert tier label (STOP / CAUTION / INFO).
+String localizedAlertLevel(AppLocalizations l10n, AlertLevel l) => switch (l) {
+  AlertLevel.stop => l10n.alertStop,
+  AlertLevel.caution => l10n.alertCaution,
+  AlertLevel.info => l10n.alertInfo,
+  AlertLevel.none => '',
+};
+
+/// Localized hazard type label for the 4 operational types.
+String localizedHazardType(AppLocalizations l10n, String id) => switch (id) {
+  'animal' => l10n.hazardAnimal,
+  'person' => l10n.hazardPerson,
+  'vehicle' => l10n.hazardVehicle,
+  'obstruction' => l10n.hazardObstruction,
+  _ => typeInfo(id).label,
+};
+
+/// Localized severity label (Line blocked / Near the line).
+String localizedSeverity(AppLocalizations l10n, Hazard h) =>
+    h.blocked ? l10n.severityBlocked : l10n.severityNear;
+
+/// Localized severity hint (Train cannot pass / Pass with caution).
+String localizedSeverityHint(AppLocalizations l10n, Hazard h) =>
+    h.blocked ? l10n.severityBlockedHint : l10n.severityNearHint;
 
 String hhmm(DateTime t) {
   final l = t.toLocal();
