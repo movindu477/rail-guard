@@ -36,6 +36,7 @@ Results from such footage are limited to **detection and track results**
 | Upload date | *to fill in* |
 | Local file | `data/videos/raw/srilanka_clean_full.mp4` (1886 x 934, 30 fps, 36,097 frames, 20.1 min) |
 | Derived clips | `data/videos/processed/`: `test2min.mp4`, `test5min.mp4`, `trimmed_8min.mp4`, `full_20min.mp4` (1906 x 928) |
+| Regeneration commands | `full_20min.mp4`: `ffmpeg -ss 00:00:05 -i data/videos/raw/srilanka_clean_full.mp4 -t 00:19:55 -c:v libx264 -crf 18 -c:a aac data/videos/processed/full_20min.mp4`<br>`trimmed_8min.mp4`: `ffmpeg -ss 00:00:00 -i data/videos/raw/srilanka_clean_full.mp4 -t 00:07:50 -vf "scale=1906:928" -c:v libx264 -crf 18 -c:a aac data/videos/processed/trimmed_8min.mp4` |
 | Viewpoint | Forward-facing from the cab |
 | Camera | Unknown: **detection and track results only, no distance claims**. Any metre figure computed from this footage (e.g. the E3 ranging limit) uses an *assumed* 60° field of view and is indicative only. |
 | Used in | Task 02 dataset frames, the hand-labelled daytime test set (`data/dataset/testset_manual/`), E1 corridor, E3 range limit, E4a day side |
