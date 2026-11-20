@@ -30,11 +30,14 @@ Results from such footage are limited to **detection and track results**
 
 | Field | Value |
 |---|---|
-| URL | *to fill in* |
-| Channel | *to fill in* |
-| Title | *to fill in* |
-| Upload date | *to fill in* |
-| Local file | `data/videos/raw/srilanka_clean_full.mp4` (1886 x 934, 30 fps, 36,097 frames, 20.1 min) |
+| URL | **Not recoverable.** Downloaded from YouTube on 21 July 2026; the browser history no longer reaches back that far and the file carries no source metadata (checked 20 Nov 2026: the container holds only `creation_time`, no `purl`, title, artist or comment atom). No URL is given rather than a guessed one. |
+| Channel | Not recoverable, as above |
+| Title | Not recoverable, as above |
+| Upload date | Not recoverable, as above |
+| Downloaded | 21 July 2026, 11:13 Sri Lanka time (container `creation_time` 2026-07-21T05:43:20Z) |
+| Local file | `data/videos/raw/srilanka_clean_full.mp4` (1886 x 934, 30 fps, 36,097 frames, 20.1 min, 1,141,477,769 bytes) |
+| SHA-256 | `8505c46c81e6065d05a9de130e772def1779d8ac7fdf4b84c1da4f678edbe8cb` |
+| Provenance status | **Unverifiable.** The file is held and every result from it is reproducible from it, and the checksum above identifies that exact file, but the footage cannot be independently re-obtained by a reader. Any claim resting on this footage is reported with that limitation stated. |
 | Derived clips | `data/videos/processed/`: `test2min.mp4`, `test5min.mp4`, `trimmed_8min.mp4`, `full_20min.mp4` (1906 x 928) |
 | Regeneration commands | `full_20min.mp4`: `ffmpeg -ss 00:00:05 -i data/videos/raw/srilanka_clean_full.mp4 -t 00:19:55 -c:v libx264 -crf 18 -c:a aac data/videos/processed/full_20min.mp4`<br>`trimmed_8min.mp4`: `ffmpeg -ss 00:00:00 -i data/videos/raw/srilanka_clean_full.mp4 -t 00:07:50 -vf "scale=1906:928" -c:v libx264 -crf 18 -c:a aac data/videos/processed/trimmed_8min.mp4` |
 | Viewpoint | Forward-facing from the cab |
