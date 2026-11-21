@@ -71,10 +71,21 @@ def check(folder):
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--set", choices=list(SETS), help="day or night (default: both)")
+    ap.add_argument("--set", help="day or night, or folder path (default: both)")
     ap.add_argument("--dir", help="check this folder instead (has images/ and labels/)")
     args = ap.parse_args()
-    folders = {"custom": args.dir} if args.dir else ({args.set: SETS[args.set]} if args.set else SETS)
+    if args.dir:
+        folders = {"custom": args.dir}
+    elif args.set:
+        norm_set = args.set.rstrip("/\\")
+        if args.set in SETS:
+            folders = {args.set: SETS[args.set]}
+        elif os.path.exists(args.set):
+            folders = {os.path.basename(norm_set): args.set}
+        else:
+            sys.exit(f"Unknown set or path: {args.set}")
+    else:
+        folders = SETS
 
     failed = False
     for name, folder in folders.items():

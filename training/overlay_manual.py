@@ -41,18 +41,19 @@ def main():
     ap.add_argument("--model", default=os.path.join(ROOT, "models", "yolov8s.pt"))
     ap.add_argument("--conf", type=float, default=0.25)
     ap.add_argument("--imgsz", type=int, default=1280)
-    ap.add_argument("--n", type=int, default=5, help="frames to draw")
+    ap.add_argument("--set", default=DAY, help="dataset folder (e.g. data/dataset/testset_night)")
+    ap.add_argument("--out", default=OUT, help="output folder for overlay images")
+    ap.add_argument("--n", type=int, default=None, help="frames to draw (default: all)")
     args = ap.parse_args()
 
     model = YOLO(args.model)
-    images = [p for p in sorted(glob.glob(os.path.join(DAY, "images", "*.jpg")))
-              if os.path.exists(os.path.join(DAY, "labels", os.path.splitext(os.path.basename(p))[0] + ".txt"))]
+    folder = args.set if os.path.isdir(args.set) else os.path.join(ROOT, args.set)
+    images = [p for p in sorted(glob.glob(os.path.join(folder, "images", "*.jpg")))
+              if os.path.exists(os.path.join(folder, "labels", os.path.splitext(os.path.basename(p))[0] + ".txt"))]
     frames = []
     print(f"{'frame':12s}{'label':12s}{'h px':>6s}{'best IoU':>9s}  best hazard box        best any-class box")
     for img in images:
         gts = labels_for(img)
-        if not gts:
-            continue
         r = model.predict(img, imgsz=args.imgsz, conf=args.conf, verbose=False)[0]
         H, W = r.orig_shape
         preds = [(model.names[k], c, b) for k, c, b in zip(r.boxes.cls.int().tolist(),
@@ -69,9 +70,11 @@ def main():
                   f"{hz[1]:>10s} {hz[2]:.2f}       {anyc[1]:>10s} {anyc[2]:.2f} IoU {anyc[0]:.2f}")
         frames.append((len(missed), sum(missed), img, info, preds, W, H))
 
-    os.makedirs(OUT, exist_ok=True)
+    out_dir = args.out if os.path.isabs(args.out) else os.path.join(ROOT, args.out)
+    os.makedirs(out_dir, exist_ok=True)
     frames.sort(key=lambda f: (f[0], f[1]), reverse=True)
-    for n_missed, _, img, info, preds, W, H in frames[:args.n]:
+    n_draw = args.n if args.n is not None else len(frames)
+    for n_missed, _, img, info, preds, W, H in frames[:n_draw]:
         im = cv2.imread(img)
         s = max(1.0, W / 1280)
         lw = max(2, int(2 * s))
@@ -86,7 +89,7 @@ def main():
             text(im, f"LABEL {NAMES[c]} IoU {best:.2f}", p1[0], p1[1] - 4, GREEN, 0.55 * s)
         text(im, f"{os.path.basename(img)}  green: labels  orange: hazard-class predictions  "
                  f"grey: other classes  (conf >= {args.conf})", 10, int(30 * s), (255, 255, 255), 0.6 * s)
-        out = os.path.join(OUT, os.path.basename(img)[:-4] + ".png")
+        out = os.path.join(out_dir, os.path.basename(img)[:-4] + ".png")
         cv2.imwrite(out, im if W <= 1600 else cv2.resize(im, (1600, int(H * 1600 / W))))
         print(f"wrote {out}  ({n_missed} labels missed)")
 

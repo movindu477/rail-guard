@@ -1,0 +1,6 @@
+size_band,day_boxes,day_recall,day_ci_low,day_ci_high,night_boxes,night_recall,night_ci_low,night_ci_high,ci_overlap,ranking_note
+<20 px,1,0.000,0.000,0.793,0,,,,n/a,Day N=1 < 20; No night boxes
+20-50 px,24,0.083,0.023,0.258,7,0.000,0.000,0.354,yes,Night N=7 < 20
+50-100 px,44,0.432,0.297,0.578,11,0.000,0.000,0.259,no,Night N=11 < 20
+>100 px,32,0.562,0.393,0.718,21,0.000,0.000,0.155,no,Both N >= 20 (rankable)
+all,101,0.386,0.297,0.484,39,0.000,0.000,0.090,no,Both N >= 20 (rankable)

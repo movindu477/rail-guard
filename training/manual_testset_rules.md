@@ -137,3 +137,8 @@ loose boxes tightened in `manual_002`, `manual_005`, `manual_007`, `manual_018`,
 `manual_046`, `manual_052`, `manual_053`, `manual_054`; a missed car added in
 `manual_013`. A final check of all 57 files found no label with two or more
 detected objects inside it. No result from the first labelling is reported.
+
+## Amendment after the night set review (21 Nov 2026)
+
+Night set confidence rule (21 Nov 2026). A box is drawn only where the object is identifiable from the frame as extracted, without brightening, zooming beyond 200%, or using neighbouring frames. A shape that is only recognisable because its position suggests what it should be gets no box. A first pass on 21 Nov 2026 was reviewed and discarded: six of the six largest boxes contained no identifiable object.
+

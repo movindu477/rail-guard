@@ -23,6 +23,7 @@ size. It refuses a set with fewer than 10 labelled images.
 import argparse
 import csv
 import glob
+import math
 import os
 
 from ultralytics import YOLO
@@ -39,6 +40,19 @@ THRESH = 0.25   # PipelineConfig.conf_threshold
 MIN_TO_RANK = 20   # fewer boxes than this in a class or band: report it, don't rank models on it
 BANDS = [(0, 20, "<20 px"), (20, 50, "20-50 px"), (50, 100, "50-100 px"), (100, 1e9, ">100 px")]
 MIN_LABELLED = 10  # --labelled-only: fewer labelled images than this and the set is not scored
+
+
+def wilson_ci(k, n, z=1.96):
+    """Wilson score 95% confidence interval for proportion k/n."""
+    if n == 0:
+        return "", ""
+    p = k / n
+    denom = 1 + (z ** 2) / n
+    center = (p + (z ** 2) / (2 * n)) / denom
+    margin = (z / denom) * math.sqrt((p * (1 - p)) / n + (z ** 2) / (4 * (n ** 2)))
+    low = max(0.0, center - margin)
+    high = min(1.0, center + margin)
+    return round(low, 3), round(high, 3)
 
 
 def match(preds, gts, class_aware, min_iou=0.5):
@@ -104,11 +118,15 @@ def score_set(model, folder, imgsz, labelled_only=False, conf=THRESH, min_iou=0.
     rate = lambda a, n: round(a / n, 3) if n else ""
     for c in range(7):
         if n_cls[c]:
-            rows.append(("class-aware recall", NAMES[c], n_cls[c], rate(hit_cls[c], n_cls[c])))
-    rows.append(("class-aware recall", "all", n_all, rate(hit_aware, n_all)))
-    rows.append(("class-agnostic recall", "all", n_all, rate(hit_agn, n_all)))
+            ci_lo, ci_hi = wilson_ci(hit_cls[c], n_cls[c])
+            rows.append(("class-aware recall", NAMES[c], n_cls[c], rate(hit_cls[c], n_cls[c]), ci_lo, ci_hi))
+    ci_lo, ci_hi = wilson_ci(hit_aware, n_all)
+    rows.append(("class-aware recall", "all", n_all, rate(hit_aware, n_all), ci_lo, ci_hi))
+    ci_lo, ci_hi = wilson_ci(hit_agn, n_all)
+    rows.append(("class-agnostic recall", "all", n_all, rate(hit_agn, n_all), ci_lo, ci_hi))
     for (lo, hi, label), n, a in zip(BANDS, n_band, hit_band):
-        rows.append(("class-agnostic recall", label, n, rate(a, n)))
+        ci_lo, ci_hi = wilson_ci(a, n)
+        rows.append(("class-agnostic recall", label, n, rate(a, n), ci_lo, ci_hi))
     scope = (f"scored on {len(images)} of {total} images (labelled subset)"
              if len(images) < total else f"scored on all {total} images")
     return rows, f"{scope}, {n_all} boxes", len(images), total
@@ -140,15 +158,18 @@ def main():
         print(f"\n== {name}: {note}")
         if rows is None:
             continue
-        print(f"   {'metric':24s}{'subset':12s}{'boxes':>7s}{'recall':>9s}")
-        for metric, subset, n, rec in rows:
+        print(f"   {'metric':24s}{'subset':12s}{'boxes':>7s}{'recall':>9s}{'95% CI':>18s}")
+        for metric, subset, n, rec, ci_lo, ci_hi in rows:
             few = n < MIN_TO_RANK
-            print(f"   {metric:24s}{subset:12s}{n:>7d}{str(rec):>9s}"
+            ci_str = f"[{ci_lo:.3f}, {ci_hi:.3f}]" if (ci_lo != "" and ci_hi != "") else ""
+            print(f"   {metric:24s}{subset:12s}{n:>7d}{str(rec):>9s}{ci_str:>18s}"
                   + (f"   too few boxes to rank models (< {MIN_TO_RANK})" if few and n else ""))
             out_rows.append({"set": name, "images_scored": scored, "images_in_set": total,
                              "conf": args.conf, "iou": args.iou,
                              "metric": metric, "subset": subset,
-                             "boxes": n, "recall": rec, "too_few_to_rank": int(few)})
+                             "boxes": n, "recall": rec,
+                             "ci_low": ci_lo, "ci_high": ci_hi,
+                             "too_few_to_rank": int(few)})
 
     if out_rows:
         os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
