@@ -193,3 +193,133 @@ the overlap is visible per frame and cannot be lost.
 Results measured on the original 57 frames are reported as such, with their
 own sample size, and are never silently pooled with results from the extended
 set.
+
+## Amendment: second extension, and a spot-check of empty frames (24 Nov 2026)
+
+52 further frames from four more stretches of the same day ride, chosen to
+reach parts still unsampled after the first extension:
+
+| Stretch | Seconds | Interval |
+|---|---|---|
+| New D | 20-84 | one frame every 8 s |
+| New E | 400-520 | one frame every 8 s |
+| New F | 660-780 | one frame every 8 s |
+| New G | 950-1030 | one frame every 8 s |
+
+`provenance.csv` records the nearest training-dataset frame as **unused** for
+36 of the 52, **train** for 15 and **val** for 1.
+
+### Spot-check, and why it was run
+
+This batch came out at 25% of frames carrying a box, against 50% for the
+previous batch, and 24 boxes against 59 — labelled in roughly a third of the
+time. That is consistent with the stretches being open track rather than
+stations, and equally consistent with frames being scanned too fast to catch
+objects near the 12 px minimum.
+
+The distinction is not cosmetic. **An object missed in labelling does not only
+lower recall: a model that detects it is charged a false positive.** The
+precision figure (0.320, 1.46 FP/frame) is the headline result of this project
+and it rests entirely on these sets being exhaustive.
+
+**Method.** Eight of the 39 frames labelled empty were re-examined at full
+zoom, spread across all four stretches: `manual_005`, `manual_012`,
+`manual_019`, `manual_024`, `manual_031`, `manual_038`, `manual_044`,
+`manual_050`. The detector was NOT used to choose or find candidates. Labels
+drawn where a model points make every one of its detections a true positive by
+construction, which is the circular-evaluation fault already caught and
+discarded once in this project (see the night-set amendment of 21 Nov 2026).
+
+**Result.** One of the eight (`manual_044`) contained a missed object: a car
+of about 28 x 22 px, in the 20-50 px band. It was labelled and the batch was
+accepted. The other seven were confirmed empty.
+
+**What this means for the numbers.** One miss in eight re-examined frames is a
+wide interval on a small sample and cannot be read as a precise error rate. It
+is recorded because it is a known, measured limitation of this set rather than
+an assumed-clean one: a small number of further missed objects in the empty
+frames of this batch is possible, each of which would slightly understate
+precision and recall alike. Results are reported with this caveat attached, not
+as though the set were proven exhaustive.
+
+### Duplicate frame removed (24 Nov 2026)
+
+The second extension used 400-520 s while the first had used 520-640 s. The
+extractor includes both ends of a range, so t = 520.0 s was extracted twice and
+the same frame entered the set as `manual_073` and `manual_129`. Both carried
+zero boxes, so no box was double-counted, but the frame count and the
+empty-frame count were both one too high.
+
+`manual_129` was removed, along with its row in `provenance.csv`. The set has
+156 distinct frames. Frame numbering is not contiguous after this and does not
+need to be; every tool here works from the files present.
+
+It was caught by `relabel_merged.py`, which matches frames by image content
+hash rather than by filename offset and refuses when one source frame matches
+two destination frames. A filename-offset version of the same tool would have
+matched them silently and written labels onto the wrong frames.
+
+### Second pass on batch C, and a known inconsistency (24 Nov 2026)
+
+The spot-check and the per-band recall both pointed at batch C having been
+labelled too quickly, so all 51 remaining frames were re-examined. Eight
+further boxes were found across five frames (`manual_107`, `manual_111`,
+`manual_112`, `manual_113`, `manual_134`).
+
+**Every one of the eight was missed by the detector.** Precision was unchanged
+by the correction (0.365 before and after) and recall fell from 0.492 to
+0.472. That is the signature of genuinely hard objects being added, not of
+easy ones: an object that no model detects cannot create a false positive, so
+it moves recall and leaves precision alone.
+
+Labels were written onto the already-merged frames with
+`training/relabel_merged.py`, which matches source to destination by image
+content hash. Re-running `merge_testset.py` would have appended all 51 frames
+a second time and duplicated every box.
+
+**Known inconsistency at the small end.** Six of the eight new boxes fall
+below 20 px. The `< 20 px` band across the whole set is now 8 boxes, of which
+6 are from batch C:
+
+| Band share | Batches A+B | Batch C |
+|---|---|---|
+| < 20 px | 2 of 160 (1.2%) | 6 of 33 (18%) |
+
+The rules permit a box down to 12 px, but A+B were in practice labelled as if
+the floor were 20 px, and batch C after its second pass was not. The set is
+therefore not homogeneous below 20 px.
+
+Consequences, stated rather than corrected:
+
+- **Precision is unaffected.** Objects this small are detected by no model
+  tested here, so they produce no false positives. The precision figures are
+  comparable across batches.
+- **Recall is depressed** by roughly the six extra boxes, which no model finds.
+- Per-band recall is reported throughout, so a reader can drop the `< 20 px`
+  band and compare the remaining bands on consistent ground. The headline
+  class-agnostic recall includes them.
+
+Correcting this properly means re-examining all 105 frames of A+B at the 12 px
+floor. That is not done, and the numbers are reported with this limitation
+attached.
+
+### False positives are driven by scene clutter, not by the detector
+
+Subtracting the 105-frame run from the 156-frame run isolates batch C, whose
+four stretches are open track where the earlier batches were station areas and
+level crossings:
+
+| | A+B, 105 frames | Batch C, 51 frames |
+|---|---|---|
+| Predictions | 225 | 24 |
+| False positives | 153 | 5 |
+| **False positives per frame** | **1.46** | **0.10** |
+
+Same model, same confidence threshold, same image size: a fifteen-fold
+difference in false-alarm rate between station areas and open line. The
+detector's false alarms come from trackside clutter - poles, signs, platform
+furniture, parked vehicles - and not from any property of the model.
+
+This matters operationally. False alarms concentrate where trains are slow and
+the driver is already alert, and nearly vanish on open line where the train is
+fast and a warning carries most weight.
