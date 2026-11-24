@@ -16,6 +16,11 @@ Refuses rather than guesses:
 - a label file with no image, a malformed line, a class id outside 0-6, or a
   coordinate outside 0-1 stops the merge.
 - an existing destination file is never overwritten.
+- a frame whose image bytes already exist in the destination is a duplicate,
+  not a new sample. On 24 Nov 2026 two extraction ranges shared an endpoint
+  (400-520 and 520-640) and the extractor includes both ends, so t = 520.0 s
+  entered the set twice. Both copies happened to be empty; had they held boxes,
+  every count built on the set would have been quietly wrong.
 
 Nothing is written until every check has passed, so a refusal leaves the
 daytime set exactly as it was.
@@ -24,6 +29,7 @@ daytime set exactly as it was.
 import argparse
 import csv
 import glob
+import hashlib
 import os
 import shutil
 
@@ -56,6 +62,14 @@ def read_labels(path):
             raise ValueError(f"{os.path.basename(path)} line {n}: zero-size box")
         out.append((cls, cx, cy, w, h))
     return out
+
+
+def digest(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
 
 def next_index(dest_images):
@@ -92,6 +106,13 @@ def main():
     # ---- check everything before writing anything ----
     problems, plan, counts, boxes_total = [], [], [0] * len(NAMES), 0
     start = next_index(dst_img)
+
+    # Same image already in the destination, or twice in this batch, is a
+    # duplicate sample: it double-counts its boxes and its frame.
+    dest_hashes = {}
+    for p in glob.glob(os.path.join(dst_img, "*.jpg")):
+        dest_hashes.setdefault(digest(p), os.path.basename(p))
+    seen_here = {}
     for i, img in enumerate(images):
         stem = os.path.splitext(os.path.basename(img))[0]
         lab = os.path.join(src_lab, stem + ".txt")
@@ -106,6 +127,16 @@ def main():
         for cls, *_ in found:
             counts[cls] += 1
         boxes_total += len(found)
+        d = digest(img)
+        if d in dest_hashes:
+            problems.append(f"{stem}: identical to {dest_hashes[d]} already in the "
+                            f"destination - duplicate sample, not a new frame")
+            continue
+        if d in seen_here:
+            problems.append(f"{stem}: identical to {seen_here[d]} in this batch")
+            continue
+        seen_here[d] = stem
+
         new_stem = f"manual_{start + i:03d}"
         for ext, d in ((".jpg", dst_img), (".txt", dst_lab)):
             target = os.path.join(d, new_stem + ext)

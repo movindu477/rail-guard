@@ -323,3 +323,55 @@ furniture, parked vehicles - and not from any property of the model.
 This matters operationally. False alarms concentrate where trains are slow and
 the driver is already alert, and nearly vanish on open line where the train is
 fast and a warning carries most weight.
+
+## Amendment: night set extended to 81 frames (24 Nov 2026)
+
+The night set held 24 frames and 2 boxes, which supported no statement at all:
+every night figure read "too few boxes to rank models". 57 further frames were
+extracted across the whole ride (4-452 s, one every 8 s, against the original
+19.3 s), giving 81 frames and 11 boxes.
+
+Labelled under the night confidence rule of 21 Nov 2026 without exception: a
+box only where the object is identifiable from the frame as extracted, with no
+brightening, no zoom beyond 200%, and no use of neighbouring frames.
+
+The denser sample found objects at twice the rate of the first pass (0.16
+boxes per frame against 0.08), which is consistent with the 8 s interval
+catching more of the lit sections - stations, level crossings, signals - where
+anything is identifiable at all.
+
+### The finding: the detector is nearly silent at night
+
+| | Day, 156 frames | Night, 81 frames |
+|---|---|---|
+| Predictions | 249 | **7** |
+| Predictions per frame | 1.60 | **0.09** |
+| False positives per frame | 1.01 | 0.06 |
+| Objects found | 91 of 193 | **2 of 11** |
+
+Stock COCO yolov8s, same weights, same confidence threshold of 0.25, same
+image size. The detector produces roughly eighteen times fewer detections per
+frame at night than in daylight.
+
+**The low night false-alarm rate is not accuracy.** It is a detector that has
+stopped producing output. Read on its own, 0.06 FP/frame at night against 1.01
+by day looks like better behaviour; read next to the prediction count it is the
+opposite.
+
+**What rests on what.** The prediction count (7 across 81 frames) needs no
+labels and no assumptions: it is what the model did. The recall figure rests on
+11 boxes with a 95% interval of [0.051, 0.477] and must be reported as "2 of 11
+identifiable objects were detected", never as a rate of 0.18.
+
+### Operational reading
+
+RailGuard as built is a daylight system. Night is when a driver's own eyes are
+worst and an automatic aid would be worth most, and it is precisely where this
+pipeline contributes least. That limitation is stated rather than hidden, and
+it is a property of a visible-light camera and a COCO-trained detector, not of
+the corridor-gating or gauge-ranging methods, which are unaffected by
+illumination once an object is detected at all.
+
+A thermal or near-infrared camera is the direct answer and is out of scope
+here; OSDaR23 ships synchronised infrared streams, so the question is testable
+in future work without new footage.
