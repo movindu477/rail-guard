@@ -16,8 +16,8 @@ class RG {
   static const surfaceHigh = Color(0xFFF1F3F6); // icon circles, chips
   static const border = Color(0xFFE4E7EC);
   static const pill = Color(0xFF1E2023); // dark "live" status pill
-  static const text = Color(0xFF16181C);
-  static const textDim = Color(0xFF6B7280);
+  static const text = Color(0xFF0F172A);
+  static const textDim = Color(0xFF475569);
   static const brand = Color(0xFFE82529); // logo red: Report, STOP
   static const blue = Color(0xFF2F6BFF); // location, railway line, links
   static const live = Color(0xFF22C55E); // GPS live dot
@@ -27,40 +27,45 @@ class RG {
   static const shadow = Color(0x22000000);
 }
 
-/// One text scale for the whole app: medium weights, bold only where a
-/// glance must catch it (alert distance).
+/// One text scale for the whole app using Poppins with clear, legible weights.
 class TS {
   static const title = TextStyle(
+    fontFamily: defaultFontFamily,
     fontSize: 16,
     fontWeight: FontWeight.w600,
     color: RG.text,
     fontFamilyFallback: scriptFontFallbacks,
   );
   static const body = TextStyle(
+    fontFamily: defaultFontFamily,
     fontSize: 14,
-    fontWeight: FontWeight.w400,
+    fontWeight: FontWeight.w500,
     color: RG.text,
     fontFamilyFallback: scriptFontFallbacks,
   );
   static const bodyStrong = TextStyle(
+    fontFamily: defaultFontFamily,
     fontSize: 15,
     fontWeight: FontWeight.w600,
     color: RG.text,
     fontFamilyFallback: scriptFontFallbacks,
   );
   static const small = TextStyle(
+    fontFamily: defaultFontFamily,
     fontSize: 12,
-    fontWeight: FontWeight.w400,
+    fontWeight: FontWeight.w500,
     color: RG.textDim,
     fontFamilyFallback: scriptFontFallbacks,
   );
   static const label = TextStyle(
+    fontFamily: defaultFontFamily,
     fontSize: 11,
     fontWeight: FontWeight.w500,
     color: RG.text,
     fontFamilyFallback: scriptFontFallbacks,
   );
   static const button = TextStyle(
+    fontFamily: defaultFontFamily,
     fontSize: 16,
     fontWeight: FontWeight.w600,
     fontFamilyFallback: scriptFontFallbacks,
@@ -70,28 +75,56 @@ class TS {
 /// Soft drop shadow for the floating cards and buttons.
 const cardShadow = [BoxShadow(color: RG.shadow, blurRadius: 14, offset: Offset(0, 4))];
 
-ThemeData railGuardTheme({Locale? locale}) => ThemeData(
-  useMaterial3: true,
-  brightness: Brightness.light,
-  fontFamily: fontFamilyForLocale(locale),
-  fontFamilyFallback: scriptFontFallbacks,
-  scaffoldBackgroundColor: RG.bg,
-  colorScheme: const ColorScheme.light(
-    primary: RG.blue,
-    onPrimary: Colors.white,
-    surface: RG.surface,
-    error: RG.danger,
-  ),
-  snackBarTheme: const SnackBarThemeData(
-    behavior: SnackBarBehavior.floating,
-    backgroundColor: RG.pill,
-    contentTextStyle: TextStyle(
-      color: Colors.white,
-      fontSize: 14,
-      fontFamilyFallback: scriptFontFallbacks,
+ThemeData railGuardTheme({Locale? locale}) {
+  final primaryFont = fontFamilyForLocale(locale) ?? defaultFontFamily;
+  const baseMedium = TextStyle(
+    fontFamily: defaultFontFamily,
+    fontWeight: FontWeight.w500,
+    color: RG.text,
+    fontFamilyFallback: scriptFontFallbacks,
+  );
+  return ThemeData(
+    useMaterial3: true,
+    brightness: Brightness.light,
+    fontFamily: primaryFont,
+    fontFamilyFallback: scriptFontFallbacks,
+    scaffoldBackgroundColor: RG.bg,
+    textTheme: const TextTheme(
+      displayLarge: baseMedium,
+      displayMedium: baseMedium,
+      displaySmall: baseMedium,
+      headlineLarge: baseMedium,
+      headlineMedium: baseMedium,
+      headlineSmall: baseMedium,
+      titleLarge: baseMedium,
+      titleMedium: baseMedium,
+      titleSmall: baseMedium,
+      bodyLarge: baseMedium,
+      bodyMedium: baseMedium,
+      bodySmall: baseMedium,
+      labelLarge: baseMedium,
+      labelMedium: baseMedium,
+      labelSmall: baseMedium,
     ),
-  ),
-);
+    colorScheme: const ColorScheme.light(
+      primary: RG.blue,
+      onPrimary: Colors.white,
+      surface: RG.surface,
+      error: RG.danger,
+    ),
+    snackBarTheme: const SnackBarThemeData(
+      behavior: SnackBarBehavior.floating,
+      backgroundColor: RG.pill,
+      contentTextStyle: TextStyle(
+        fontFamily: defaultFontFamily,
+        fontWeight: FontWeight.w500,
+        color: Colors.white,
+        fontSize: 14,
+        fontFamilyFallback: scriptFontFallbacks,
+      ),
+    ),
+  );
+}
 
 /// What the driver can report. [id] is the Firestore object_type.
 class HazardType {

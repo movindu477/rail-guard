@@ -3,6 +3,16 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- Position must keep updating once the driver leaves the app, or the
+         train disappears from every other driver's map while still moving.
+         Android requires a visible notification for this, which is also the
+         honest behaviour: the driver can always see that they are being
+         tracked. ACCESS_BACKGROUND_LOCATION is a separate grant the driver
+         makes from a second prompt ("Allow all the time"). -->
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <application
         android:label="RailGuard"

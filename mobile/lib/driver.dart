@@ -129,6 +129,43 @@ Future<void> clearDriver() async =>
 
 /// Writes the driver profile to Firestore `drivers/{uid}`. Throws on error so
 /// callers can show actionable errors or retry.
+/// A unit id is already claimed by a different driver.
+class UnitIdTakenException implements Exception {
+  const UnitIdTakenException(this.unitId);
+  final String unitId;
+  @override
+  String toString() => 'Unit $unitId is already in use';
+}
+
+/// Claims `unitId` for this driver, or throws [UnitIdTakenException].
+///
+/// Why this is not a nicety: the laptop publisher and every phone write the
+/// train's position to `train_position/{unitId}`. Two drivers on the same unit
+/// id write to the SAME document, so one train silently overwrites the other
+/// and becomes invisible to everyone on the map. That happened on 24 Nov 2026
+/// with two phones both keeping the pre-filled `unit-01`: the second driver
+/// could not be seen, and nothing in the app said why.
+///
+/// `unit_claims/{unitId}` holds the owning uid. A transaction makes the check
+/// and the claim atomic, so two phones registering at once cannot both win.
+/// A claim is a single document read by id, not a query over `drivers`, so the
+/// security rules stay simple.
+Future<void> claimUnitId(String uid, String unitId, {String? releasing}) async {
+  final db = FirebaseFirestore.instance;
+  await db.runTransaction((tx) async {
+    final ref = db.collection('unit_claims').doc(unitId);
+    final snap = await tx.get(ref);
+    final owner = snap.data()?['uid'] as String?;
+    if (snap.exists && owner != null && owner != uid) {
+      throw UnitIdTakenException(unitId);
+    }
+    tx.set(ref, {'uid': uid, 'updated_at': FieldValue.serverTimestamp()});
+    if (releasing != null && releasing.isNotEmpty && releasing != unitId) {
+      tx.delete(db.collection('unit_claims').doc(releasing));
+    }
+  });
+}
+
 Future<void> saveDriverToFirestore(String uid, DriverProfile p) async {
   await FirebaseFirestore.instance.collection('drivers').doc(uid).set({
     ...p.toMap(),

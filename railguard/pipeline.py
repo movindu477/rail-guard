@@ -15,6 +15,7 @@ from .core.tracking import PersistenceTracker
 from .core.geometry import rail_convergence, rail_width_by_row
 from .detection.classes import class_ids
 from .detection.model import load_yolo
+from .detection.tiled import detect as detect_hazards
 from .results import Detection, FrameResult
 from .segmentation.tepnet import load_tepnet
 
@@ -56,16 +57,16 @@ class RailGuardPipeline:
             self._update_track(frame)
         polygon, corridor, width_by_row, convergence, track_valid = self._track
 
-        # 4. Detection, hazard classes only.
-        result = self.model.predict(frame, conf=cfg.conf_threshold, imgsz=cfg.imgsz,
-                                    max_det=cfg.max_det, classes=self.keep_ids,
-                                    device=cfg.device, verbose=False)[0]
+        # 4. Detection, hazard classes only. Tiled by default: the full frame
+        # plus a grid of overlapping crops, so distant objects reach the network
+        # at a usable size. detection/tiled.py records the measurements.
+        boxes = detect_hazards(self.model, frame, cfg, self.keep_ids)
 
         # 5. Corridor gate first, then range only what is on the track.
         fx = cfg.focal_px(w)
         found = []
-        for box in result.boxes:
-            x1, y1, x2, y2 = map(int, box.xyxy[0])
+        for bx1, by1, bx2, by2, cls_id, conf in boxes:
+            x1, y1, x2, y2 = int(bx1), int(by1), int(bx2), int(by2)
             gx, gy = foot_point(x1, y1, x2, y2)
             on_track = in_corridor(corridor, gx, gy)
             # ground distance along the track (pitch-corrected), which is what braking
@@ -73,8 +74,8 @@ class RailGuardPipeline:
             # confirmed object then raises BRAKE NOW (fail-safe).
             distance = (estimate_distance_m(gy, width_by_row, fx, cfg.camera_pitch_deg, cfg.camera_height_m)
                         if on_track and track_valid else None)
-            found.append(((x1, y1, x2, y2), self.model.names[int(box.cls[0])],
-                          float(box.conf[0]), on_track, distance))
+            found.append(((x1, y1, x2, y2), self.model.names[int(cls_id)],
+                          float(conf), on_track, distance))
 
         # 6. Persistence: count the frames each on-track object has been seen in.
         on_boxes = [b for b, _, _, on, _ in found if on]

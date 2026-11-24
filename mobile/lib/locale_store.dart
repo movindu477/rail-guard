@@ -18,9 +18,13 @@ const List<Locale> supportedAppLocales = [
   Locale('ta'),
 ];
 
-/// Bundled font fallbacks so Sinhala and Tamil glyphs always render even on
-/// older Android handsets that lack system Sinhala/Tamil fonts.
+/// Default Latin font family bundled with the app (Poppins Light 300).
+const String defaultFontFamily = 'Poppins';
+
+/// Bundled font fallbacks so Poppins and Sinhala/Tamil glyphs always render even
+/// on older Android handsets that lack system fonts.
 const List<String> scriptFontFallbacks = [
+  'Poppins',
   'NotoSansSinhala',
   'NotoSansTamil',
 ];

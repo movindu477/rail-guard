@@ -18,6 +18,7 @@ Needs: pip install fiftyone
 """
 
 import argparse
+import collections
 import csv
 import os
 import shutil
@@ -70,22 +71,35 @@ def main():
     print(f"Fetching {oi_classes} from Open Images V7, "
           f"up to {args.per_class} images per split")
 
+    # One query per class. Asking for several classes at once applies
+    # max_samples to the whole query, and Open Images is overwhelmingly cars,
+    # so a six-class request returned 1,728 car images and 22 elephants.
     parts = []
     for split in args.splits:
-        ds = foz.load_zoo_dataset(
-            "open-images-v7",
-            split=split,
-            label_types=["detections"],
-            classes=oi_classes,
-            max_samples=args.per_class,
-            dataset_name=f"oi7-{'-'.join(args.classes)}-{split}",
-            overwrite=True,
-        )
-        parts.append((split, ds))
+        for ours, oi in zip(args.classes, oi_classes):
+            print(f"  {split}: {oi}, up to {args.per_class} images")
+            name = f"oi7-{ours}-{split}"
+            # Delete only our named dataset, never pass overwrite=True:
+            # that wipes the zoo's download directory, so each class query
+            # deleted the previous class's image files and the export then
+            # failed with FileNotFoundError on the first missing image.
+            if fo.dataset_exists(name):
+                fo.delete_dataset(name)
+            ds = foz.load_zoo_dataset(
+                "open-images-v7",
+                split=split,
+                label_types=["detections"],
+                classes=[oi],
+                max_samples=args.per_class,
+                dataset_name=name,
+            )
+            parts.append((split, ds))
 
     # Rename Open Images labels to our names and drop every other class, so a
     # cow image carrying a "Dog" box does not bring an unlabelled object in.
     rows = []
+    skipped = collections.Counter()
+    seen = set()  # a photo of a cow and a truck comes back from both queries
     merged = fo.Dataset(name="railguard-openimages", overwrite=True)
     for split, ds in parts:
         for sample in ds:
@@ -93,11 +107,37 @@ def main():
             keep = []
             for d in dets:
                 ours = OI_TO_OURS.get(d.label)
-                if ours in args.classes:
-                    d.label = ours
-                    keep.append(d)
+                # Keep EVERY one of our 7 classes present in the image, not
+                # only the class that was queried. A photo fetched for "Bus"
+                # is full of people; dropping their boxes leaves them
+                # unlabelled, and an unlabelled object is a background
+                # example. Training on 4,190 such images on 23 Nov 2026 drove
+                # person recall to 0.004 while every other class reached
+                # 0.6-0.76. Unlabelled is not the same as absent.
+                if ours is None:
+                    continue
+                # Open Images is general web photography. Its "Elephant" and
+                # "Cattle" classes include toys, drawings, statues and logos,
+                # tagged IsDepiction. Training on a felt elephant teaches a
+                # shape that does not occur on a railway: the same failure as
+                # the composited animals, which reached 98% recall on
+                # synthetic images and 31% on real photographs.
+                if getattr(d, "IsDepiction", None) in (1, True):
+                    skipped["IsDepiction (toy, drawing, statue)"] += 1
+                    continue
+                # IsGroupOf is one box around a herd, which breaks the
+                # one-box-per-object rule in training/manual_testset_rules.md.
+                if getattr(d, "IsGroupOf", None) in (1, True):
+                    skipped["IsGroupOf (one box around a herd)"] += 1
+                    continue
+                d.label = ours
+                keep.append(d)
             if not keep:
                 continue
+            if sample.filepath in seen:
+                skipped["already taken from another class query"] += 1
+                continue
+            seen.add(sample.filepath)
             sample["ground_truth"] = fo.Detections(detections=keep)
             merged.add_sample(sample.copy())
             rows.append({
@@ -130,6 +170,10 @@ def main():
         for c in r["classes"].split():
             per_class[c] += 1
     print(f"\n{len(rows)} images -> {args.out}")
+    if skipped:
+        print("boxes dropped:")
+        for k, v in skipped.most_common():
+            print(f"  {k:36s} {v}")
     print("images containing each class:", per_class)
     print("Class ids follow NAMES:", {i: n for i, n in enumerate(NAMES)})
     print("\nNext: python training/audit_dataset.py to check the counts, then merge "

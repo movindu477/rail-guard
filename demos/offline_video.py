@@ -32,6 +32,9 @@ def main():
     ap.add_argument("--calib", help="calibration .npz from camera/calibration/calibrate.py")
     ap.add_argument("--segment-every", type=int, default=1, help="run TEP-Net every Nth frame")
     ap.add_argument("--max-frames", type=int, help="stop after this many frames")
+    ap.add_argument("--tiling", action="store_true",
+                    help="full frame plus a 2x2 tile grid instead of one pass. Measured and not "
+                         "adopted: more recall, worse precision (railguard/detection/tiled.py)")
     ap.add_argument("--publish", action="store_true",
                     help="send BRAKE NOW hazards to Firestore for the driver app (needs the phone app running)")
     ap.add_argument("--unit", default="unit-01", help="train unit id, same as the phone app's RAILGUARD_UNIT")
@@ -48,11 +51,12 @@ def main():
     if args.max_frames:
         total = min(total, args.max_frames)
 
-    opts = dict(segment_every=args.segment_every)
+    opts = dict(segment_every=args.segment_every, tiled=args.tiling)
     config = PipelineConfig.from_calibration(args.calib, **opts) if args.calib else PipelineConfig(**opts)
     print("Loading models...")
     pipeline = RailGuardPipeline(config)
     print(f"Detecting: {[pipeline.model.names[i] for i in pipeline.keep_ids]}")
+    print(f"Inference: {f'{config.tile_cols}x{config.tile_rows} tiled + full frame' if config.tiled else 'single pass'}")
     print(f"Focal length: {config.focal_px(w):.0f} px at {w}x{h}"
           f"{f' (from {args.calib})' if args.calib else ''}")
 

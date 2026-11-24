@@ -26,7 +26,12 @@ class StopAlert extends StatelessWidget {
     final h = warning.hazard;
     final t = typeInfo(h.objectType);
     final time = h.time;
-    const white = TextStyle(color: Colors.white, fontFamilyFallback: scriptFontFallbacks);
+    const white = TextStyle(
+      fontFamily: defaultFontFamily,
+      fontWeight: FontWeight.w500,
+      color: Colors.white,
+      fontFamilyFallback: scriptFontFallbacks,
+    );
     return Material(
       color: RG.danger,
       child: SafeArea(
@@ -77,7 +82,7 @@ class StopAlert extends StatelessWidget {
                     : (warning.onAnotherLine
                         ? 'ON ANOTHER LINE'
                         : (warning.headingKnown ? l10n.stopAhead : l10n.stopDirectionUnknown)),
-                style: white.copyWith(fontSize: 16, fontWeight: FontWeight.w500, letterSpacing: 1.5),
+                style: white.copyWith(fontSize: 16, fontWeight: FontWeight.w600, letterSpacing: 1.5),
               ),
               const SizedBox(height: 24),
               if (time != null)
@@ -101,6 +106,7 @@ class StopAlert extends StatelessWidget {
                   child: Text(
                     l10n.btnAcknowledge,
                     style: const TextStyle(
+                      fontFamily: defaultFontFamily,
                       fontSize: 18,
                       fontWeight: FontWeight.w700,
                       letterSpacing: 1,

@@ -156,6 +156,7 @@ Widget _severityStep(BuildContext ctx, HazardType t, {VoidCallback? onBack}) {
                         Text(
                           s.id == 'blocked' ? l10n.severityBlocked : l10n.severityNear,
                           style: const TextStyle(
+                            fontFamily: defaultFontFamily,
                             fontSize: 17,
                             fontWeight: FontWeight.w600,
                             fontFamilyFallback: scriptFontFallbacks,
@@ -164,7 +165,9 @@ Widget _severityStep(BuildContext ctx, HazardType t, {VoidCallback? onBack}) {
                         Text(
                           s.id == 'blocked' ? l10n.severityBlockedHint : l10n.severityNearHint,
                           style: const TextStyle(
+                            fontFamily: defaultFontFamily,
                             fontSize: 13,
+                            fontWeight: FontWeight.w500,
                             fontFamilyFallback: scriptFontFallbacks,
                           ),
                         ),

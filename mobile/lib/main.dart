@@ -18,6 +18,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'account.dart';
 import 'alarm.dart';
 import 'driver.dart';
+import 'duty.dart';
 import 'l10n/app_localizations.dart';
 import 'lifecycle.dart';
 import 'locale_store.dart';
@@ -134,6 +135,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   StreamSubscription<ServiceStatus>? _serviceSub;
   bool _gpsStarting = false;
   String? _gpsProblem = 'GPS starting…'; // why there is no usable fix, if any
+  DutyState _duty = DutyState.onDuty; // position is shared only while on duty
+  bool _backgroundAllowed = false;    // "Allow all the time" granted?
 
   // Hazards and alerts
   List<Hazard> _hazards = []; // active reports from Firestore
@@ -194,7 +197,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (simMode) {
       _startSim();
     } else {
-      _startGps();
+      _restoreDutyThenStartGps();
       // Location switched on (or off) from the quick settings: retry or report it.
       _serviceSub = Geolocator.getServiceStatusStream().listen((status) {
         if (status == ServiceStatus.enabled) {
@@ -271,11 +274,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     try {
       if (!await _ensureLocationPermission()) return;
       setState(() => _gpsProblem = 'Waiting for GPS fix… (go outside)');
+      // On duty this carries a foreground-service notification, so the stream
+      // survives the driver leaving the app. See duty.dart.
       _gpsSub =
           Geolocator.getPositionStream(
-            locationSettings: const LocationSettings(
-              accuracy: LocationAccuracy.high,
-              distanceFilter: 5, // metres moved before the next update
+            locationSettings: dutyLocationSettings(
+              duty: _duty,
+              trainLabel: driver.trainNo.isEmpty ? unitId : driver.trainLabel,
             ),
           ).listen(
             _onPosition,
@@ -1225,6 +1230,100 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (mounted) setState(() {});
   }
 
+  /// Reads the saved duty state first, so the position stream is created with
+  /// the right settings rather than started plain and restarted a moment later.
+  Future<void> _restoreDutyThenStartGps() async {
+    final saved = await loadDuty();
+    final granted = await Geolocator.checkPermission() == LocationPermission.always;
+    if (!mounted) return;
+    setState(() {
+      _duty = saved;
+      _backgroundAllowed = granted;
+    });
+    await _startGps();
+  }
+
+  /// Restarts the position stream so new duty settings take effect: a running
+  /// stream keeps the settings it was created with.
+  Future<void> _restartGps() async {
+    await _gpsSub?.cancel();
+    _gpsSub = null;
+    await _startGps();
+  }
+
+  /// Switches duty. Going on duty asks for background location, because
+  /// without it the position stops the moment the driver leaves the app and
+  /// the train disappears from every other map.
+  Future<void> _setDuty(DutyState next) async {
+    if (next.isOn) {
+      final granted = await ensureBackgroundLocation();
+      if (!mounted) return;
+      setState(() => _backgroundAllowed = granted);
+      if (!granted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            duration: Duration(seconds: 6),
+            content: Text(
+              'Location is only allowed while the app is open. Your train will '
+              'disappear from other drivers when you switch away. Set location '
+              'to "Allow all the time" in Settings to stay visible.',
+            ),
+          ),
+        );
+      }
+    }
+    setState(() => _duty = next);
+    await saveDuty(next);
+    await _restartGps();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(next.isOn
+            ? 'On duty — your position is shared with other drivers'
+            : 'Off duty — your position is no longer shared'),
+      ),
+    );
+  }
+
+  /// On duty / off duty, stated plainly. A driver must be able to see whether
+  /// they are being tracked without opening a menu.
+  Widget _dutyChip() {
+    final on = _duty.isOn;
+    // On duty without background permission is the misleading state: the
+    // driver believes they are visible and they are not, so it is marked.
+    final warn = on && !_backgroundAllowed;
+    return GestureDetector(
+      onTap: () => _setDuty(on ? DutyState.offDuty : DutyState.onDuty),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: on ? (warn ? const Color(0xFFB45309) : const Color(0xFF15803D)) : Colors.white,
+          borderRadius: BorderRadius.circular(32),
+          boxShadow: cardShadow,
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              on ? (warn ? Icons.warning_amber_rounded : Icons.podcasts_rounded)
+                 : Icons.pause_circle_outline_rounded,
+              size: 18,
+              color: on ? Colors.white : Colors.black54,
+            ),
+            const SizedBox(width: 6),
+            Text(
+              warn ? 'App only' : _duty.label,
+              style: TS.small.copyWith(
+                color: on ? Colors.white : Colors.black87,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _topBar() {
     final pos = _pos;
     final train = driver.trainNo.isEmpty ? unitId : '${driver.trainLabel}  ·  $unitId';
@@ -1268,6 +1367,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             ),
           ),
           const Spacer(),
+          _dutyChip(),
+          const SizedBox(width: 8),
           _roundButton(Icons.notifications_none_rounded, _showList, badge: _fresh().length),
         ],
       ),

@@ -142,3 +142,54 @@ detected objects inside it. No result from the first labelling is reported.
 
 Night set confidence rule (21 Nov 2026). A box is drawn only where the object is identifiable from the frame as extracted, without brightening, zooming beyond 200%, or using neighbouring frames. A shape that is only recognisable because its position suggests what it should be gets no box. A first pass on 21 Nov 2026 was reviewed and discarded: six of the six largest boxes contained no identifiable object.
 
+
+## Amendment: daytime set extended (24 Nov 2026)
+
+**Why.** At 57 frames / 101 boxes the set could not separate any two models.
+Every comparison run on 24 Nov 2026 — four input resolutions, four model
+sizes, two tiling configurations, two fine-tuned models — returned confidence
+intervals that overlapped. The limit was the sample size, not the detectors.
+A Wilson interval on 101 boxes is roughly +/-0.09 wide; at ~200 boxes it is
+about a third narrower, which is the difference between "cannot distinguish"
+and a ranking.
+
+**What changed.** Frames added from three further stretches of the same day
+ride, chosen to spread across parts not previously sampled:
+
+| Stretch | Seconds | Interval |
+|---|---|---|
+| New A | 260-380 | one frame every 8 s |
+| New B | 520-640 | one frame every 8 s |
+| New C | 820-940 | one frame every 8 s |
+
+48 frames extracted. Of these, `provenance.csv` records that the nearest
+training-dataset frame is in the **train** split for 23 of them and is
+**unused** for the other 25 — so just over half sit beside footage no model
+has ever trained on.
+
+Extracted to `data/dataset/testset_manual_b/`, labelled under the rules above
+without exception, then merged into the daytime set. The original 57 frames
+are untouched; `data/dataset/testset_manual_BACKUP/` holds them as extracted
+and labelled before the merge.
+
+**What did NOT change.** Classes, box rules, minimum size, occlusion, crowd
+and tight-box rules, the tool (makesense.ai, no model pre-labels), and the
+scoring method are all as fixed above. Only the frame count changed.
+
+**The independence caveat, stated plainly.** The original stretches were the
+VALIDATION stretches of the Task 02 split. These three new stretches fall in
+TRAINING stretches of that split. For every model this project actually uses
+this makes no difference: stock COCO was trained on COCO and has never seen
+any Sri Lankan footage, so the whole ride is unseen data to it. The two
+fine-tuned models that did train on those stretches were measured and rejected
+on 24 Nov 2026 and are not used.
+
+But the caveat has to travel with the data: **any future model fine-tuned on
+the day ride must exclude these frames from its training split, or results on
+the extended set are contaminated.** `extract_manual_testset.py` records the
+nearest training frame and its split for every frame in `provenance.csv`, so
+the overlap is visible per frame and cannot be lost.
+
+Results measured on the original 57 frames are reported as such, with their
+own sample size, and are never silently pooled with results from the extended
+set.

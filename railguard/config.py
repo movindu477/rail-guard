@@ -38,6 +38,19 @@ class PipelineConfig:
     conf_threshold: float = 0.25
     imgsz: int = 1280
     max_det: int = 300
+    # Tiled inference: the full frame plus a tile_cols x tile_rows grid of
+    # overlapping crops, merged with NMS. MEASURED AND REJECTED on 24 Nov 2026
+    # (detection/tiled.py has the full table): it raises recall 0.386 -> 0.426
+    # but drops precision 0.325 -> 0.256, emitting 48 extra boxes to find 4 more
+    # real objects. False positives per frame go 1.42 -> 2.19. Off by default;
+    # set tiled=True to reproduce the experiment.
+    tiled: bool = False
+    tile_cols: int = 2
+    tile_rows: int = 2
+    tile_overlap: float = 0.2    # fraction of a tile side each tile is grown by
+    tile_nms_iou: float = 0.6    # merging boxes found in more than one tile
+    tile_containment: float = 0.8   # drop a box this far inside a higher-confidence one
+
 
     # ---- Corridor ----
     envelope_factor: float = 1.9    # rolling-stock width / gauge: 3.2 m Sri Lankan stock / 1.676 m

@@ -63,11 +63,20 @@ class Box:
 
 
 class FakeYolo:
+    """One person in the middle of the track, foot point at (200, 390).
+
+    Answers per crop: the box is returned only for the whole frame, because
+    tiled inference (railguard/detection/tiled.py) hands this detector the
+    full frame and then each tile in turn. A fake that answered the same box
+    for every crop would report one person five times over.
+    """
+
     names = {0: "person"}
 
-    def predict(self, *_a, **_k):
-        # a person standing in the middle of the track, foot point at (200, 390)
-        return [type("R", (), {"boxes": [Box([190, 330, 210, 390])]})()]
+    def predict(self, img, *_a, **_k):
+        full = img.shape[0] == H and img.shape[1] == W
+        boxes = [Box([190, 330, 210, 390])] if full else []
+        return [type("R", (), {"boxes": boxes})()]
 
 
 def pipeline(egopath, **cfg):

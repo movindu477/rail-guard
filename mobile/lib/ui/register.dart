@@ -1,7 +1,7 @@
 // Registration: driver account creation and train setup.
-// Shown on first launch, and in edit mode (from the top bar) when changing trains mid-shift.
-// Restyled after the modern mobile auth reference design with individual rounded
-// input fields, icons, safety terms acceptance, and pill CTA buttons.
+// Uses train4.jpg without black opacity overlay, a 50px top border radius on the
+// form section, a red-accented active language selector, and legible Poppins
+// typography throughout.
 //
 // The local save is the offline cache; Firestore drivers/{uid} is the authoritative
 // profile for other trains to see.
@@ -13,7 +13,6 @@ import '../account.dart';
 import '../driver.dart';
 import '../l10n/app_localizations.dart';
 import '../locale_store.dart';
-import 'splash.dart';
 import 'theme.dart';
 
 class RegisterScreen extends StatefulWidget {
@@ -60,13 +59,17 @@ class _RegisterScreenState extends State<RegisterScreen> {
   void initState() {
     super.initState();
     final e = widget.existing;
-    _email = TextEditingController(text: e?.email ?? (currentUser?.email ?? ''));
+    _email =
+        TextEditingController(text: e?.email ?? (currentUser?.email ?? ''));
     _password = TextEditingController();
     _confirmPassword = TextEditingController();
     _name = TextEditingController(text: e?.driverName ?? '');
     _staff = TextEditingController(text: e?.driverId ?? '');
     _train = TextEditingController(text: e?.trainNo ?? '');
-    _unit = TextEditingController(text: e?.unitId ?? defaultUnitId);
+    // Deliberately blank for a new driver. The field used to arrive holding
+    // defaultUnitId, and on 24 Nov 2026 two phones were both registered as
+    // unit-01 because neither driver changed it. A unit id has to be a choice.
+    _unit = TextEditingController(text: e?.unitId ?? '');
     _service = e?.service ?? Service.up;
   }
 
@@ -96,8 +99,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
       String userEmail = _email.text.trim();
 
       if (!editing) {
-        // If not already signed in with this email, create Auth account
-        if (uid == null || currentUser?.email?.toLowerCase() != userEmail.toLowerCase()) {
+        if (uid == null ||
+            currentUser?.email?.toLowerCase() != userEmail.toLowerCase()) {
           final cred = await register(userEmail, _password.text);
           uid = cred.user!.uid;
         }
@@ -114,17 +117,26 @@ class _RegisterScreenState extends State<RegisterScreen> {
         email: userEmail,
       );
 
-      // Write authoritative drivers/{uid}
       if (uid != null) {
+        // Claim first: a unit id already held by another driver must be
+        // refused before anything is saved, or two trains share one
+        // train_position document and one of them vanishes from the map.
+        await claimUnitId(uid, p.unitId, releasing: widget.existing?.unitId);
         await saveDriverToFirestore(uid, p);
       }
 
-      // Update offline local cache
       await saveDriver(p);
 
       if (!mounted) return;
       setState(() => _saving = false);
       widget.onDone(p);
+    } on UnitIdTakenException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _saving = false;
+        _inlineError = 'Unit ${e.unitId} is already used by another driver. '
+            'Pick a different unit ID.';
+      });
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -139,7 +151,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: RG.surface,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
         title: const Text('Sign out?', style: TS.title),
         content: const Text(
           'Are you sure you want to sign out of RailGuard? '
@@ -149,13 +161,23 @@ class _RegisterScreenState extends State<RegisterScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel', style: TextStyle(color: RG.textDim)),
+            child: const Text(
+              'Cancel',
+              style: TextStyle(
+                fontFamily: defaultFontFamily,
+                fontWeight: FontWeight.w500,
+                color: RG.textDim,
+              ),
+            ),
           ),
           FilledButton(
             style: FilledButton.styleFrom(
               backgroundColor: RG.danger,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              elevation: 0,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 11),
             ),
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('Sign out', style: TS.button),
@@ -178,7 +200,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     final editing = widget.existing != null;
     if (editing) {
       return Scaffold(
-        backgroundColor: RG.bg,
+        backgroundColor: Colors.white,
         appBar: AppBar(
           backgroundColor: RG.surface,
           surfaceTintColor: RG.surface,
@@ -195,9 +217,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
         body: SafeArea(
           child: Center(
             child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
+              padding: const EdgeInsets.fromLTRB(22, 16, 22, 24),
               child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 440),
+                constraints: const BoxConstraints(maxWidth: 420),
                 child: _buildForm(editing: true),
               ),
             ),
@@ -206,43 +228,33 @@ class _RegisterScreenState extends State<RegisterScreen> {
       );
     }
 
-    final heroHeight = MediaQuery.sizeOf(context).height * 0.38;
+    final imageHeight =
+        (MediaQuery.sizeOf(context).height * 0.34).clamp(230.0, 320.0);
+    const double overlap = 46.0;
+
     return Scaffold(
       backgroundColor: Colors.white,
       resizeToAvoidBottomInset: true,
       body: SingleChildScrollView(
         child: Stack(
           children: [
-            // Top 38% hero photo with gradient scrim
+            // Section 1: Top Image Section (train4.jpg, no black opacity)
+            // with left-aligned Title and Description.
             SizedBox(
-              height: heroHeight,
+              height: imageHeight,
               width: double.infinity,
               child: Stack(
                 fit: StackFit.expand,
                 children: [
                   Image.asset(
-                    'assets/images/train1.jpg',
+                    'assets/images/train4.jpg',
                     fit: BoxFit.cover,
-                    alignment: const Alignment(0, 0.35),
-                  ),
-                  DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [
-                          splashDark.withValues(alpha: 0.0),
-                          splashDark.withValues(alpha: 0.55),
-                          splashDark.withValues(alpha: 0.92),
-                        ],
-                        stops: const [0.0, 0.45, 1.0],
-                      ),
-                    ),
+                    alignment: const Alignment(0, 0.25),
                   ),
                   Positioned(
                     left: 24,
                     right: 24,
-                    bottom: 46,
+                    bottom: overlap + 16,
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       mainAxisSize: MainAxisSize.min,
@@ -250,19 +262,37 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         const Text(
                           'RailGuard',
                           style: TextStyle(
+                            fontFamily: defaultFontFamily,
                             fontSize: 28,
                             fontWeight: FontWeight.w700,
                             color: Colors.white,
-                            letterSpacing: -0.3,
+                            letterSpacing: 0.2,
+                            shadows: [
+                              Shadow(
+                                color: Color(0xB3000000),
+                                blurRadius: 12,
+                                offset: Offset(0, 2),
+                              ),
+                            ],
+                            fontFamilyFallback: scriptFontFallbacks,
                           ),
                         ),
-                        const SizedBox(height: 4),
+                        const SizedBox(height: 2),
                         Text(
-                          'Sri Lankan Railways driver registration',
+                          'Sri Lankan Railways driver & unit registration',
                           style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w400,
-                            color: Colors.white.withValues(alpha: 0.75),
+                            fontFamily: defaultFontFamily,
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w500,
+                            color: Colors.white.withValues(alpha: 0.95),
+                            shadows: const [
+                              Shadow(
+                                color: Color(0xB3000000),
+                                blurRadius: 10,
+                                offset: Offset(0, 1),
+                              ),
+                            ],
+                            fontFamilyFallback: scriptFontFallbacks,
                           ),
                         ),
                       ],
@@ -271,27 +301,30 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 ],
               ),
             ),
-            // White sheet overlapping the photo upward by 28 px
+
+            // Section 2: Separate Bottom Form Section with 50px top border radius
             Container(
               width: double.infinity,
-              margin: EdgeInsets.only(top: heroHeight - 28),
+              margin: EdgeInsets.only(top: imageHeight - overlap),
               decoration: const BoxDecoration(
                 color: Colors.white,
-                borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+                borderRadius: BorderRadius.vertical(
+                  top: Radius.circular(50),
+                ),
                 boxShadow: [
                   BoxShadow(
-                    color: Color(0x1A000000),
-                    blurRadius: 18,
-                    offset: Offset(0, -4),
+                    color: Color(0x1F000000),
+                    blurRadius: 24,
+                    offset: Offset(0, -6),
                   ),
                 ],
               ),
-              padding: const EdgeInsets.fromLTRB(24, 26, 24, 32),
+              padding: const EdgeInsets.fromLTRB(26, 28, 26, 24),
               child: SafeArea(
                 top: false,
                 child: Center(
                   child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 440),
+                    constraints: const BoxConstraints(maxWidth: 420),
                     child: _buildForm(editing: false),
                   ),
                 ),
@@ -306,220 +339,236 @@ class _RegisterScreenState extends State<RegisterScreen> {
   Widget _buildForm({required bool editing}) {
     final l10n = AppLocalizations.of(context)!;
     return Form(
-    key: _form,
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        _languageSelector(l10n),
-        const SizedBox(height: 18),
-        if (!editing) ...[
-          // Mockup Title & Subtitle
-          Text(
-            l10n.createAccountTitle,
-            style: const TextStyle(
-              fontSize: 22,
-              fontWeight: FontWeight.w700,
-              color: Color(0xFF1F2937),
-              letterSpacing: -0.2,
-              fontFamilyFallback: scriptFontFallbacks,
-            ),
-          ),
-          const SizedBox(height: 4),
-          const Text(
-            'Sign up with your railway staff credentials to start duty',
-            style: TextStyle(
-              fontSize: 13,
-              color: Color(0xFF6B7280),
-            ),
-          ),
-          const SizedBox(height: 22),
-
-          _sectionLabel('ACCOUNT CREDENTIALS'),
-          const SizedBox(height: 8),
-          _roundedField(
-            controller: _email,
-            hintText: 'Enter Your Email',
-            icon: Icons.mail_outline_rounded,
-            keyboard: TextInputType.emailAddress,
-            validator: validateEmail,
-          ),
-          const SizedBox(height: 12),
-          _roundedField(
-            controller: _password,
-            hintText: 'Password (min 8 characters)',
-            icon: Icons.lock_outline_rounded,
-            obscure: _obscurePassword,
-            validator: validatePassword,
-            suffix: IconButton(
-              icon: Icon(
-                _obscurePassword ? Icons.visibility_outlined : Icons.visibility_off_outlined,
-                color: const Color(0xFF9CA3AF),
-                size: 21,
+      key: _form,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (!editing) ...[
+            Text(
+              l10n.createAccountTitle,
+              style: const TextStyle(
+                fontFamily: defaultFontFamily,
+                fontSize: 22,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF0F172A),
+                letterSpacing: -0.2,
+                fontFamilyFallback: scriptFontFallbacks,
               ),
-              onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
             ),
-          ),
-          const SizedBox(height: 12),
-          _roundedField(
-            controller: _confirmPassword,
-            hintText: 'Confirm Password',
-            icon: Icons.lock_outline_rounded,
-            obscure: _obscureConfirm,
-            validator: (v) => validateConfirmPassword(v, _password.text),
-            suffix: IconButton(
-              icon: Icon(
-                _obscureConfirm ? Icons.visibility_outlined : Icons.visibility_off_outlined,
-                color: const Color(0xFF9CA3AF),
-                size: 21,
+            const SizedBox(height: 4),
+            const Text(
+              'Sign up with your railway staff credentials to start duty',
+              style: TextStyle(
+                fontFamily: defaultFontFamily,
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+                color: Color(0xFF475569),
               ),
-              onPressed: () => setState(() => _obscureConfirm = !_obscureConfirm),
             ),
-          ),
-          const SizedBox(height: 20),
-        ],
-
-        _sectionLabel(l10n.labelDriverDetails),
-        const SizedBox(height: 8),
-        _roundedField(
-          controller: _name,
-          hintText: 'Enter Driver Full Name',
-          icon: Icons.person_outline_rounded,
-          validator: (v) => validateRequired(v, 'Name'),
-          capitalise: TextCapitalization.words,
-        ),
-        const SizedBox(height: 12),
-        _roundedField(
-          controller: _staff,
-          hintText: 'Enter Staff ID (e.g. SLR4821)',
-          icon: Icons.badge_outlined,
-          validator: (v) => validateRequired(v, 'Staff number'),
-        ),
-        const SizedBox(height: 20),
-
-        _sectionLabel(l10n.labelTrainAssignment),
-        const SizedBox(height: 8),
-        _roundedField(
-          controller: _train,
-          hintText: 'Enter Train Number (e.g. 1005)',
-          icon: Icons.train_outlined,
-          validator: validateTrainNo,
-          keyboard: TextInputType.text,
-        ),
-        const SizedBox(height: 12),
-        _roundedField(
-          controller: _unit,
-          hintText: 'Unit ID (e.g. unit-01)',
-          icon: Icons.memory_rounded,
-          validator: validateUnitId,
-          helperText: 'Must match detection unit on laptop',
-          formatters: [
-            FilteringTextInputFormatter.allow(RegExp(r'[a-zA-Z0-9-]')),
-            LowerCaseFormatter(),
+            const SizedBox(height: 18),
           ],
-        ),
-        const SizedBox(height: 20),
 
-        _sectionLabel(l10n.labelDirection),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            for (final s in Service.values) ...[
-              Expanded(child: _serviceButton(s, l10n)),
-              if (s != Service.values.last) const SizedBox(width: 12),
-            ],
-          ],
-        ),
-        const SizedBox(height: 8),
-        const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 4),
-          child: Text(
-            'You are only alerted about hazards and trains running the '
-            'same way on the same line.',
-            style: TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
-          ),
-        ),
+          _languageSelector(l10n),
+          const SizedBox(height: 18),
 
-
-
-        // Inline Error Banner
-        if (_inlineError != null) ...[
-          const SizedBox(height: 16),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
-            decoration: BoxDecoration(
-              color: RG.danger.withValues(alpha: 0.08),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: RG.danger.withValues(alpha: 0.3)),
+          if (!editing) ...[
+            _sectionHeader('ACCOUNT CREDENTIALS'),
+            const SizedBox(height: 10),
+            _modernField(
+              controller: _email,
+              hintText: 'Email address',
+              icon: Icons.mail_outline_rounded,
+              keyboard: TextInputType.emailAddress,
+              validator: validateEmail,
             ),
-            child: Row(
-              children: [
-                const Icon(Icons.error_outline_rounded, color: RG.danger, size: 20),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    _inlineError!,
-                    style: TS.small.copyWith(
-                      color: RG.danger,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
+            const SizedBox(height: 10),
+            _modernField(
+              controller: _password,
+              hintText: 'Password (min 8 characters)',
+              icon: Icons.lock_outline_rounded,
+              obscure: _obscurePassword,
+              validator: validatePassword,
+              suffix: IconButton(
+                icon: Icon(
+                  _obscurePassword
+                      ? Icons.visibility_outlined
+                      : Icons.visibility_off_outlined,
+                  color: const Color(0xFF64748B),
+                  size: 20,
                 ),
-              ],
-            ),
-          ),
-        ],
-
-        const SizedBox(height: 22),
-
-        // Primary action pill button
-        SizedBox(
-          height: 52,
-          child: FilledButton(
-            onPressed: _saving ? null : _submit,
-            style: FilledButton.styleFrom(
-              backgroundColor: RG.brand,
-              disabledBackgroundColor: RG.brand.withValues(alpha: 0.5),
-              elevation: 2,
-              shadowColor: RG.brand.withValues(alpha: 0.4),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(28),
+                onPressed: () =>
+                    setState(() => _obscurePassword = !_obscurePassword),
               ),
             ),
-            child: _saving
-                ? const SizedBox(
-                    width: 22,
-                    height: 22,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2.4,
-                      color: Colors.white,
-                    ),
-                  )
-                : Text(
-                    editing ? l10n.btnSaveChanges : l10n.btnStartDuty,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.white,
-                      letterSpacing: 0.2,
-                      fontFamilyFallback: scriptFontFallbacks,
+            const SizedBox(height: 10),
+            _modernField(
+              controller: _confirmPassword,
+              hintText: 'Confirm password',
+              icon: Icons.lock_outline_rounded,
+              obscure: _obscureConfirm,
+              validator: (v) => validateConfirmPassword(v, _password.text),
+              suffix: IconButton(
+                icon: Icon(
+                  _obscureConfirm
+                      ? Icons.visibility_outlined
+                      : Icons.visibility_off_outlined,
+                  color: const Color(0xFF64748B),
+                  size: 20,
+                ),
+                onPressed: () =>
+                    setState(() => _obscureConfirm = !_obscureConfirm),
+              ),
+            ),
+            const SizedBox(height: 18),
+          ],
+
+          _sectionHeader(l10n.labelDriverDetails),
+          const SizedBox(height: 10),
+          _modernField(
+            controller: _name,
+            hintText: 'Driver full name',
+            icon: Icons.person_outline_rounded,
+            validator: (v) => validateRequired(v, 'Name'),
+            capitalise: TextCapitalization.words,
+          ),
+          const SizedBox(height: 10),
+          _modernField(
+            controller: _staff,
+            hintText: 'Staff ID (e.g. SLR4821)',
+            icon: Icons.badge_outlined,
+            validator: (v) => validateRequired(v, 'Staff number'),
+          ),
+          const SizedBox(height: 18),
+
+          _sectionHeader(l10n.labelTrainAssignment),
+          const SizedBox(height: 10),
+          _modernField(
+            controller: _train,
+            hintText: 'Train number (e.g. 1005)',
+            icon: Icons.train_outlined,
+            validator: validateTrainNo,
+            keyboard: TextInputType.text,
+          ),
+          const SizedBox(height: 10),
+          _modernField(
+            controller: _unit,
+            hintText: 'Unit ID, unique to this train (e.g. unit-07)',
+            icon: Icons.memory_rounded,
+            validator: validateUnitId,
+            helperText: 'Must match detection unit on laptop',
+            formatters: [
+              FilteringTextInputFormatter.allow(RegExp(r'[a-zA-Z0-9-]')),
+              LowerCaseFormatter(),
+            ],
+          ),
+          const SizedBox(height: 18),
+
+          _sectionHeader(l10n.labelDirection),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              for (final s in Service.values) ...[
+                Expanded(child: _serviceButton(s, l10n)),
+                if (s != Service.values.last) const SizedBox(width: 10),
+              ],
+            ],
+          ),
+          const SizedBox(height: 6),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 2),
+            child: Text(
+              'You are only alerted about hazards and trains running the '
+              'same way on the same line.',
+              style: TextStyle(
+                fontFamily: defaultFontFamily,
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+                color: Color(0xFF475569),
+              ),
+            ),
+          ),
+
+          if (_inlineError != null) ...[
+            const SizedBox(height: 14),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: RG.danger.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: RG.danger.withValues(alpha: 0.30)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.error_outline_rounded,
+                    color: RG.danger,
+                    size: 18,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _inlineError!,
+                      style: TS.small.copyWith(
+                        color: RG.danger,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ),
+                ],
+              ),
+            ),
+          ],
+
+          const SizedBox(height: 20),
+
+          // Primary CTA button
+          SizedBox(
+            height: 50,
+            child: FilledButton(
+              onPressed: _saving ? null : _submit,
+              style: FilledButton.styleFrom(
+                backgroundColor: RG.brand,
+                disabledBackgroundColor: RG.brand.withValues(alpha: 0.5),
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+              child: _saving
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : Text(
+                      editing ? l10n.btnSaveChanges : l10n.btnStartDuty,
+                      style: const TextStyle(
+                        fontFamily: defaultFontFamily,
+                        fontSize: 15.5,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white,
+                        letterSpacing: 0.3,
+                        fontFamilyFallback: scriptFontFallbacks,
+                      ),
+                    ),
+            ),
           ),
-        ),
 
-        // Mockup divider and bottom link
-        if (!editing) ...[
-
-          if (widget.onBackToLogin != null) ...[
-            const SizedBox(height: 22),
+          if (!editing && widget.onBackToLogin != null) ...[
+            const SizedBox(height: 16),
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 const Text(
                   'Already have an account? ',
                   style: TextStyle(
+                    fontFamily: defaultFontFamily,
                     fontSize: 13,
-                    color: Color(0xFF6B7280),
+                    fontWeight: FontWeight.w500,
+                    color: Color(0xFF475569),
                   ),
                 ),
                 GestureDetector(
@@ -527,6 +576,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   child: const Text(
                     'Sign In',
                     style: TextStyle(
+                      fontFamily: defaultFontFamily,
                       fontSize: 13,
                       fontWeight: FontWeight.w700,
                       color: RG.brand,
@@ -536,25 +586,32 @@ class _RegisterScreenState extends State<RegisterScreen> {
               ],
             ),
           ],
-        ],
 
-        if (editing) ...[
-          const SizedBox(height: 24),
-          OutlinedButton.icon(
-            style: OutlinedButton.styleFrom(
-              foregroundColor: RG.danger,
-              side: const BorderSide(color: RG.danger, width: 1.2),
-              padding: const EdgeInsets.symmetric(vertical: 14),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+          if (editing) ...[
+            const SizedBox(height: 18),
+            OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                foregroundColor: RG.danger,
+                side: const BorderSide(color: RG.danger, width: 1.2),
+                padding: const EdgeInsets.symmetric(vertical: 13),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(13),
+                ),
+              ),
+              icon: const Icon(Icons.logout, size: 18),
+              label: const Text(
+                'Sign out of RailGuard',
+                style: TextStyle(
+                  fontFamily: defaultFontFamily,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              onPressed: _confirmSignOut,
             ),
-            icon: const Icon(Icons.logout, size: 20),
-            label: const Text('Sign out of RailGuard', style: TextStyle(fontWeight: FontWeight.w600)),
-            onPressed: _confirmSignOut,
-          ),
+          ],
         ],
-      ],
-    ),
-  );
+      ),
+    );
   }
 
   // ------------------------------------------------------------ UI pieces
@@ -569,60 +626,74 @@ class _RegisterScreenState extends State<RegisterScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _sectionLabel(l10n.labelLanguage),
+        _sectionHeader(l10n.labelLanguage),
         const SizedBox(height: 8),
-        Row(
-          children: [
-            for (final (loc, label) in options) ...[
-              Expanded(
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(14),
-                  onTap: () => setAppLocale(loc),
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 150),
-                    padding: const EdgeInsets.symmetric(vertical: 11),
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      color: activeCode == loc.languageCode
-                          ? RG.blue.withValues(alpha: 0.10)
-                          : const Color(0xFFF9FAFB),
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(
+        Container(
+          padding: const EdgeInsets.all(4),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF1F5F9),
+            borderRadius: BorderRadius.circular(13),
+            border: Border.all(color: const Color(0xFFE2E8F0)),
+          ),
+          child: Row(
+            children: [
+              for (final (loc, label) in options)
+                Expanded(
+                  child: GestureDetector(
+                    onTap: () => setAppLocale(loc),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 160),
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        // Selected language highlighted in our theme red color
                         color: activeCode == loc.languageCode
-                            ? RG.blue
-                            : const Color(0xFFE5E7EB),
-                        width: activeCode == loc.languageCode ? 1.8 : 1.2,
+                            ? RG.brand
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(10),
+                        boxShadow: activeCode == loc.languageCode
+                            ? [
+                                BoxShadow(
+                                  color: RG.brand.withValues(alpha: 0.28),
+                                  blurRadius: 8,
+                                  offset: const Offset(0, 2),
+                                ),
+                              ]
+                            : null,
                       ),
-                    ),
-                    child: Text(
-                      label,
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
-                        color: activeCode == loc.languageCode
-                            ? RG.blue
-                            : const Color(0xFF1F2937),
-                        fontFamily: fontFamilyForLocale(loc),
-                        fontFamilyFallback: scriptFontFallbacks,
+                      child: Text(
+                        label,
+                        style: TextStyle(
+                          fontSize: 13.5,
+                          fontWeight: activeCode == loc.languageCode
+                              ? FontWeight.w600
+                              : FontWeight.w500,
+                          color: activeCode == loc.languageCode
+                              ? Colors.white
+                              : const Color(0xFF334155),
+                          fontFamily:
+                              fontFamilyForLocale(loc) ?? defaultFontFamily,
+                          fontFamilyFallback: scriptFontFallbacks,
+                        ),
                       ),
                     ),
                   ),
                 ),
-              ),
-              if (loc != options.last.$1) const SizedBox(width: 8),
             ],
-          ],
+          ),
         ),
         if (!translationsReviewed) ...[
           const SizedBox(height: 6),
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 4),
+            padding: const EdgeInsets.symmetric(horizontal: 2),
             child: Text(
               l10n.unreviewedTranslationNotice,
               style: const TextStyle(
+                fontFamily: defaultFontFamily,
                 fontSize: 11.5,
                 color: Color(0xFF92400E),
                 fontWeight: FontWeight.w500,
+                fontFamilyFallback: scriptFontFallbacks,
               ),
             ),
           ),
@@ -631,21 +702,27 @@ class _RegisterScreenState extends State<RegisterScreen> {
     );
   }
 
-  Widget _sectionLabel(String t) => Padding(
-    padding: const EdgeInsets.only(left: 4, bottom: 2),
-    child: Text(
-      t,
-      style: const TextStyle(
-        fontSize: 11,
-        fontWeight: FontWeight.w700,
-        color: Color(0xFF9CA3AF),
-        letterSpacing: 0.8,
-        fontFamilyFallback: scriptFontFallbacks,
+  Widget _sectionHeader(String t) => Row(
+    children: [
+      Text(
+        t,
+        style: const TextStyle(
+          fontFamily: defaultFontFamily,
+          fontSize: 11.5,
+          fontWeight: FontWeight.w700,
+          color: Color(0xFF334155),
+          letterSpacing: 0.8,
+          fontFamilyFallback: scriptFontFallbacks,
+        ),
       ),
-    ),
+      const SizedBox(width: 10),
+      const Expanded(
+        child: Divider(height: 1, thickness: 1, color: Color(0xFFE2E8F0)),
+      ),
+    ],
   );
 
-  Widget _roundedField({
+  Widget _modernField({
     required TextEditingController controller,
     required String hintText,
     required IconData icon,
@@ -665,45 +742,53 @@ class _RegisterScreenState extends State<RegisterScreen> {
     obscureText: obscure,
     scrollPadding: const EdgeInsets.only(bottom: 140),
     style: const TextStyle(
-      fontSize: 15,
-      fontWeight: FontWeight.w600,
-      color: Color(0xFF1F2937),
+      fontFamily: defaultFontFamily,
+      fontSize: 14.5,
+      fontWeight: FontWeight.w500,
+      color: Color(0xFF0F172A),
+      fontFamilyFallback: scriptFontFallbacks,
     ),
     onChanged: (_) {
       if (_inlineError != null) setState(() => _inlineError = null);
     },
     decoration: InputDecoration(
       filled: true,
-      fillColor: const Color(0xFFF9FAFB),
+      fillColor: const Color(0xFFF8FAFC),
       hintText: hintText,
       hintStyle: const TextStyle(
-        fontSize: 14,
-        fontWeight: FontWeight.w400,
-        color: Color(0xFF9CA3AF),
+        fontFamily: defaultFontFamily,
+        fontSize: 13.5,
+        fontWeight: FontWeight.w500,
+        color: Color(0xFF64748B),
       ),
       helperText: helperText,
-      helperStyle: const TextStyle(fontSize: 11, color: Color(0xFF6B7280)),
-      prefixIcon: Icon(icon, color: const Color(0xFF9CA3AF), size: 21),
+      helperStyle: const TextStyle(
+        fontFamily: defaultFontFamily,
+        fontSize: 11.5,
+        fontWeight: FontWeight.w500,
+        color: Color(0xFF475569),
+      ),
+      prefixIcon: Icon(icon, color: const Color(0xFF475569), size: 20),
       suffixIcon: suffix,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
       border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(16),
-        borderSide: const BorderSide(color: Color(0xFFE5E7EB), width: 1.2),
+        borderRadius: BorderRadius.circular(13),
+        borderSide: const BorderSide(color: Color(0xFFCBD5E1), width: 1.2),
       ),
       enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(16),
-        borderSide: const BorderSide(color: Color(0xFFE5E7EB), width: 1.2),
+        borderRadius: BorderRadius.circular(13),
+        borderSide: const BorderSide(color: Color(0xFFCBD5E1), width: 1.2),
       ),
       focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(13),
         borderSide: const BorderSide(color: RG.brand, width: 1.6),
       ),
       errorBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(13),
         borderSide: const BorderSide(color: RG.danger, width: 1.2),
       ),
       focusedErrorBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(13),
         borderSide: const BorderSide(color: RG.danger, width: 1.6),
       ),
     ),
@@ -712,42 +797,58 @@ class _RegisterScreenState extends State<RegisterScreen> {
   Widget _serviceButton(Service s, AppLocalizations l10n) {
     final on = _service == s;
     return InkWell(
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: BorderRadius.circular(13),
       onTap: () => setState(() => _service = s),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 150),
-        padding: const EdgeInsets.symmetric(vertical: 14),
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 10),
         decoration: BoxDecoration(
-          color: on ? RG.blue.withValues(alpha: 0.08) : const Color(0xFFF9FAFB),
-          borderRadius: BorderRadius.circular(16),
+          color: on
+              ? RG.brand.withValues(alpha: 0.08)
+              : const Color(0xFFF8FAFC),
+          borderRadius: BorderRadius.circular(13),
           border: Border.all(
-            color: on ? RG.blue : const Color(0xFFE5E7EB),
-            width: on ? 1.8 : 1.2,
+            color: on ? RG.brand : const Color(0xFFCBD5E1),
+            width: on ? 1.6 : 1.2,
           ),
         ),
-        child: Column(
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(
-              s == Service.up ? Icons.north_east_rounded : Icons.south_west_rounded,
-              color: on ? RG.blue : const Color(0xFF6B7280),
-              size: 22,
+              s == Service.up
+                  ? Icons.north_east_rounded
+                  : Icons.south_west_rounded,
+              color: on ? RG.brand : const Color(0xFF475569),
+              size: 20,
             ),
-            const SizedBox(height: 6),
-            Text(
-              s.short,
-              style: TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.w700,
-                color: on ? RG.blue : const Color(0xFF1F2937),
-              ),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              s == Service.up ? l10n.serviceUpDesc : l10n.serviceDownDesc,
-              style: const TextStyle(
-                fontSize: 11,
-                color: Color(0xFF6B7280),
-                fontFamilyFallback: scriptFontFallbacks,
+            const SizedBox(width: 8),
+            Flexible(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    s.short,
+                    style: TextStyle(
+                      fontFamily: defaultFontFamily,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: on ? RG.brand : const Color(0xFF0F172A),
+                    ),
+                  ),
+                  Text(
+                    s == Service.up ? l10n.serviceUpDesc : l10n.serviceDownDesc,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontFamily: defaultFontFamily,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500,
+                      color: Color(0xFF475569),
+                      fontFamilyFallback: scriptFontFallbacks,
+                    ),
+                  ),
+                ],
               ),
             ),
           ],
@@ -755,13 +856,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
       ),
     );
   }
-
-
 }
 
 /// Unit ids are document ids: keep them lower case as the driver types.
 class LowerCaseFormatter extends TextInputFormatter {
   @override
-  TextEditingValue formatEditUpdate(TextEditingValue _, TextEditingValue next) =>
-      next.copyWith(text: next.text.toLowerCase());
+  TextEditingValue formatEditUpdate(
+    TextEditingValue _,
+    TextEditingValue next,
+  ) => next.copyWith(text: next.text.toLowerCase());
 }
