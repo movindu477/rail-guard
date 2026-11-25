@@ -42,13 +42,21 @@ def fourcc_str(value):
 
 
 def open_camera(index=1, width=1920, height=1080, backend=cv2.CAP_DSHOW,
-                require_mjpg=True):
+                require_mjpg=True, exposure="auto"):
     """Opens the camera in MJPG at the given size.
 
     Raises RuntimeError if the camera will not open, or if `require_mjpg` and
     the stream is not MJPG: silently falling back to YUY2 costs a factor of
     thirteen in frame rate, which is worth stopping for rather than
     discovering later in a frame-rate figure nobody checked.
+
+    `exposure` is "auto" (the default) or a DirectShow exposure value, which is
+    a power of two in seconds: -6 is 1/64 s. Auto is set explicitly rather than
+    left alone because a manual exposure PERSISTS IN THE DRIVER between runs:
+    camera_diagnose.py sets -6 to rule exposure out as a cause of low frame
+    rate, and on 25 Nov 2026 that left every later session pitch black until
+    this was fixed. A camera that silently keeps the last script's settings is
+    its own category of bug.
     """
     cap = cv2.VideoCapture(index, backend)
     if not cap.isOpened():
@@ -59,6 +67,13 @@ def open_camera(index=1, width=1920, height=1080, backend=cv2.CAP_DSHOW,
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
     cap.set(cv2.CAP_PROP_FOURCC, MJPG)
+
+    # DSHOW: 0.75 selects auto exposure, 0.25 manual.
+    if exposure == "auto":
+        cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.75)
+    else:
+        cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.25)
+        cap.set(cv2.CAP_PROP_EXPOSURE, float(exposure))
 
     got = fourcc_str(cap.get(cv2.CAP_PROP_FOURCC))
     aw = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
