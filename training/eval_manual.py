@@ -124,6 +124,18 @@ def score_set(model, folder, imgsz, labelled_only=False, conf=THRESH, min_iou=0.
     rows.append(("class-aware recall", "all", n_all, rate(hit_aware, n_all), ci_lo, ci_hi))
     ci_lo, ci_hi = wilson_ci(hit_agn, n_all)
     rows.append(("class-agnostic recall", "all", n_all, rate(hit_agn, n_all), ci_lo, ci_hi))
+    # Boxes >= 20 px, the subset labelled to a consistent standard. Batches A+B
+    # of the day set were labelled as if the floor were 20 px; batch C after its
+    # second pass was not (manual_testset_rules.md, 24 Nov 2026). Above 20 px
+    # every frame followed the same rule, so this row is the one to compare
+    # models on. The "all" row above includes the inconsistent band and is kept
+    # so nothing is hidden: no label was deleted to produce this figure.
+    n_ge20 = sum(n_band[1:])
+    a_ge20 = sum(hit_band[1:])
+    if n_ge20:
+        ci_lo, ci_hi = wilson_ci(a_ge20, n_ge20)
+        rows.append(("class-agnostic recall", ">=20 px", n_ge20,
+                     rate(a_ge20, n_ge20), ci_lo, ci_hi))
     for (lo, hi, label), n, a in zip(BANDS, n_band, hit_band):
         ci_lo, ci_hi = wilson_ci(a, n)
         rows.append(("class-agnostic recall", label, n, rate(a, n), ci_lo, ci_hi))

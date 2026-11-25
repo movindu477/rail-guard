@@ -375,3 +375,22 @@ illumination once an object is detected at all.
 A thermal or near-infrared camera is the direct answer and is out of scope
 here; OSDaR23 ships synchronised infrared streams, so the question is testable
 in future work without new footage.
+
+### Resolution of the sub-20 px inconsistency (25 Nov 2026)
+
+Two options were considered. Raising the documented floor to 20 px and deleting
+the 8 boxes below it would have made the set consistent in minutes — and would
+have raised class-agnostic recall from 0.472 to 0.492 purely by removing from
+the denominator objects that no model detects. Deleting labelled data after
+seeing the results, in the direction that flatters the figure, is not
+defensible however good the reason sounds.
+
+**Nothing was deleted.** Instead `eval_manual.py` now reports an explicit
+`>=20 px` row: the subset of each test set labelled to a consistent standard,
+since above 20 px every batch followed the same rule. The `all` row is kept
+beside it, including the inconsistent band, so the difference between the two
+is visible rather than quietly resolved.
+
+**For the report:** compare models on the `>=20 px` row, quote the `all` row
+next to it, and state that the two differ because of a labelling floor applied
+inconsistently in one batch of 51 frames.
