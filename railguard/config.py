@@ -62,6 +62,7 @@ class PipelineConfig:
     # distance is unknown, so a confirmed object raises BRAKE NOW (fail-safe).
     track_check: bool = True
     max_rail_convergence: float = 0.5
+    track_hysteresis_frames: int = 3  # consecutive frames required to flip track_valid
 
     # ---- Ranging ----
     calib_file: Optional[str] = None   # .npz from camera/calibration/calibrate.py
@@ -75,6 +76,7 @@ class PipelineConfig:
     # ---- Alerts ----
     persist_frames: int = 3   # an on-track object must be seen in this many processed frames to alert
     track_max_age: int = 5    # frames an on-track object may go unseen before its track is dropped
+    alert_hold_s: float = 2.0  # minimum time a raised alert stays visible before clearing
     speed_kmh: float = 60.0                    # line speed; fixed until a live speed input exists
     brake_distance_m: Optional[float] = None   # None = braking distance for speed_kmh
     # Safety margin on distance before the braking comparison: an object is treated

@@ -8,7 +8,7 @@ import cv2
 from PIL import Image
 
 from .config import PipelineConfig
-from .core.alerts import alert_level
+from .core.alerts import AlertHold, TrackHysteresis, alert_level
 from .core.corridor import corridor_polygon, foot_point, in_corridor, polygon_mask
 from .core.distance import estimate_distance_m
 from .core.tracking import PersistenceTracker
@@ -28,8 +28,10 @@ class RailGuardPipeline:
         self.tepnet = load_tepnet(config.tepnet_model, config.tepnet_device or config.device)
         self._frame_idx = 0
         self._last_egopath = None
-        self._track = None   # (polygon, corridor mask, width_by_row, convergence, valid)
+        self._track = None   # (polygon, corridor mask, width_by_row, convergence, raw_valid, valid)
         self._persistence = PersistenceTracker(max_age=config.track_max_age)
+        self._track_gate = TrackHysteresis(confirm_frames=config.track_hysteresis_frames)
+        self._alert_hold = AlertHold(min_hold_s=config.alert_hold_s)
 
     def _update_track(self, frame):
         """Run TEP-Net and rebuild the corridor from its ego-path."""
@@ -43,9 +45,12 @@ class RailGuardPipeline:
         # see the track. Real rails converge with distance; if these do not, the
         # path is not the track. (No track at all is invalid too.)
         conv = rail_convergence(widths)
-        valid = conv is not None and (not self.config.track_check
-                                      or conv < self.config.max_rail_convergence)
-        self._track = (polygon, polygon_mask(polygon, frame.shape), widths, conv, valid)
+        raw_valid = conv is not None and (not self.config.track_check
+                                          or conv < self.config.max_rail_convergence)
+        if getattr(self, "_track_gate", None) is None:
+            self._track_gate = TrackHysteresis(confirm_frames=self.config.track_hysteresis_frames)
+        valid = self._track_gate.update(raw_valid)
+        self._track = (polygon, polygon_mask(polygon, frame.shape), widths, conv, raw_valid, valid)
 
     def process_frame(self, frame) -> FrameResult:
         cfg = self.config
@@ -55,7 +60,7 @@ class RailGuardPipeline:
         # segment_every-th frame; the frames in between reuse its corridor.
         if self._track is None or self._frame_idx % cfg.segment_every == 0:
             self._update_track(frame)
-        polygon, corridor, width_by_row, convergence, track_valid = self._track
+        polygon, corridor, width_by_row, convergence, raw_valid, track_valid = self._track
 
         # 4. Detection, hazard classes only. Tiled by default: the full frame
         # plus a grid of overlapping crops, so distant objects reach the network
@@ -73,7 +78,7 @@ class RailGuardPipeline:
             # distance is measured in. Unknown when the track failed the gate: a
             # confirmed object then raises BRAKE NOW (fail-safe).
             distance = (estimate_distance_m(gy, width_by_row, fx, cfg.camera_pitch_deg, cfg.camera_height_m)
-                        if on_track and track_valid else None)
+                        if on_track and raw_valid and track_valid else None)
             found.append(((x1, y1, x2, y2), self.model.names[int(cls_id)],
                           float(conf), on_track, distance))
 
@@ -89,11 +94,18 @@ class RailGuardPipeline:
 
         # 7. Alert from confirmed on-track objects only, each treated as
         # distance_margin closer than measured. Fail-safe kept: a confirmed
-        # threat at unknown distance is still BRAKE NOW.
+        # threat at unknown distance is still BRAKE NOW. Minimum hold keeps
+        # raised alerts visible for alert_hold_s without delaying initial raise.
         keep = 1.0 - cfg.distance_margin
-        alert = alert_level([None if d.distance_m is None else d.distance_m * keep
-                             for d in detections if d.confirmed],
-                            cfg.braking_distance())
+        confirmed = [d for d in detections if d.confirmed]
+        raw_alert = alert_level([None if d.distance_m is None else d.distance_m * keep
+                                 for d in confirmed],
+                                cfg.braking_distance())
+        raw_worst = (min(confirmed, key=lambda d: -1.0 if d.distance_m is None else d.distance_m)
+                     if confirmed else None)
+        if getattr(self, "_alert_hold", None) is None:
+            self._alert_hold = AlertHold(min_hold_s=cfg.alert_hold_s)
+        alert, held_threat = self._alert_hold.update(raw_alert, raw_worst)
 
         self._frame_idx += 1
         return FrameResult(
@@ -104,4 +116,5 @@ class RailGuardPipeline:
             detections=detections,
             alert=alert,
             track_valid=track_valid,
-            rail_convergence=convergence)
+            rail_convergence=convergence,
+            held_threat=held_threat if alert is not None and not confirmed else None)

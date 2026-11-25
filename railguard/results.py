@@ -35,6 +35,7 @@ class FrameResult:
     # reported as unknown, so a confirmed threat is BRAKE NOW.
     track_valid: bool = True
     rail_convergence: Optional[float] = None  # far / near rail spacing; None = no track
+    held_threat: Optional[Detection] = None   # last threat driving an alert during minimum hold
 
     @property
     def threats(self):
@@ -49,8 +50,9 @@ class FrameResult:
     @property
     def worst_threat(self):
         """The confirmed threat that drives the alert: one at unknown distance
-        first (fail-safe), otherwise the closest. None when nothing is confirmed."""
+        first (fail-safe), otherwise the closest. Falls back to `held_threat`
+        while an alert is within its minimum hold window."""
         threats = self.confirmed_threats
-        if not threats:
-            return None
-        return min(threats, key=lambda d: -1.0 if d.distance_m is None else d.distance_m)
+        if threats:
+            return min(threats, key=lambda d: -1.0 if d.distance_m is None else d.distance_m)
+        return self.held_threat

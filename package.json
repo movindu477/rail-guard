@@ -1,0 +1,16 @@
+{
+  "name": "railguard",
+  "private": true,
+  "version": "1.0.0",
+  "description": "One command to run the RailGuard backend and web UI together.",
+  "scripts": {
+    "dev": "concurrently --names backend,web --prefix-colors cyan,magenta --kill-others \"npm run dev:backend\" \"npm run dev:web\"",
+    "dev:backend": "venv\\Scripts\\python demos/web_server.py",
+    "dev:web": "npm --prefix web run dev",
+    "setup": "npm install && npm --prefix web install",
+    "build": "npm --prefix web run build"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}
