@@ -15,10 +15,10 @@ export default function SetupPanel({ status, backendError, onStart }) {
   const [speed, setSpeed] = useState(60)
   const [submitting, setSubmitting] = useState(false)
 
-  const probe = () => {
+  const probe = (refresh = false) => {
     setProbing(true)
     setProbeError('')
-    Promise.all([getCameras(), getCalibrations()])
+    Promise.all([getCameras(refresh), getCalibrations()])
       .then(([camRes, calRes]) => {
         const opts = (camRes.cameras || []).flatMap((c) =>
           (c.modes || ['1280x720']).map((m) => ({ key: `${c.index}:${m}`, index: c.index, mode: m })),
@@ -34,7 +34,10 @@ export default function SetupPanel({ status, backendError, onStart }) {
       .finally(() => setProbing(false))
   }
 
-  useEffect(probe, [])
+  useEffect(() => { probe(false) }, [])
+  useEffect(() => {
+    if (!backendError && probeError && !probing && !cameras.length) probe(false)
+  }, [backendError, probeError, probing, cameras.length])
 
   const isLoading = status.state === 'loading' || submitting
   const brakeM = brakingDistanceM(speed)
@@ -46,12 +49,15 @@ export default function SetupPanel({ status, backendError, onStart }) {
     const [w, h] = picked.mode.split('x').map(Number)
     const cleanUnit = unitId.trim() || 'unit-01'
     localStorage.setItem(UNIT_KEY, cleanUnit)
+    setProbeError('')
     setSubmitting(true)
     try {
       await onStart({
         camera: picked.index, width: w, height: h, calib: calib || null,
         unit_id: cleanUnit, publish, speed_kmh: Number(speed) || 60,
       })
+    } catch (err) {
+      setProbeError(err.message || 'Cannot reach backend on 127.0.0.1:8000')
     } finally {
       setSubmitting(false)
     }
@@ -62,7 +68,7 @@ export default function SetupPanel({ status, backendError, onStart }) {
       <form className="setup-panel" onSubmit={handleSubmit}>
         <div className="panel-head">
           <span className="section-label">RAILGUARD — RUN SETUP</span>
-          <button type="button" className="btn-inline" onClick={probe} disabled={probing || isLoading}>
+          <button type="button" className="btn-inline" onClick={() => probe(true)} disabled={probing || isLoading}>
             {probing ? 'Probing…' : 'Rescan'}
           </button>
         </div>

@@ -394,3 +394,28 @@ is visible rather than quietly resolved.
 **For the report:** compare models on the `>=20 px` row, quote the `all` row
 next to it, and state that the two differ because of a labelling floor applied
 inconsistently in one batch of 51 frames.
+
+### Two boxes removed from manual_113 (27 Nov 2026)
+
+`check_manual_labels.py` flagged two person boxes of 6 x 11 and 7 x 11 px,
+both below the 12 px floor. They were the last two of eight people in a line
+receding down the track, 21, 19, 19, 16, 10, 10, 11, 11 px tall.
+
+Inspected at 8x and 16x magnification - eight times past the 200% the night
+rule allows, and used here only to decide whether to keep an existing label,
+never to place one. At 16x both remained an unresolvable blur: light and dark
+vertical smears consistent with a person and not identifiable as one. A shape
+not identifiable at 16x is not identifiable at the permitted magnification.
+
+What made them look right was the line itself: the eighth shape sits where a
+person would be if the row continued. That is the reasoning the night-set rule
+of 21 Nov 2026 exists to forbid - *a shape that is only recognisable because
+its position suggests what it should be gets no box*. The rule was written for
+the night set; it applies to any object at the limit of resolution, and is
+treated as general from here.
+
+Both boxes removed. The day set is 156 frames, **191 boxes**. The two boxes
+ahead of them, 10 x 19 and 10 x 36 px, were kept: the floor is 12 px of
+height for a person, and both clear it.
+
+No other label in either set is below the floor.

@@ -1,0 +1,79 @@
+rules_version = '2';
+
+// RailGuard Firestore security rules.
+//
+// Kept in the repository because these rules enforce safety behaviour, not
+// just access control, and rules that live only in a web console have no
+// history and no review. Deploy from here; do not edit in the console.
+//
+// The laptop publisher uses the Admin SDK with a service-account key, which
+// bypasses these rules entirely. That is deliberate and load-bearing: it is
+// what makes "reported_by == 'auto'" mean a camera actually saw something,
+// since no client can write that value.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // A driver's own profile. Nobody else's.
+    match /drivers/{uid} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+
+    // One document per train unit, holding the uid that owns it. Stops two
+    // drivers claiming the same unit and overwriting each other's position,
+    // which once made a train vanish from every map with no sign of it.
+    match /unit_claims/{unitId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+                    && request.resource.data.uid == request.auth.uid;
+      allow update: if request.auth != null
+                    && resource.data.uid == request.auth.uid
+                    && request.resource.data.uid == request.auth.uid;
+      allow delete: if request.auth != null
+                    && resource.data.uid == request.auth.uid;
+    }
+
+    // Live train positions. Readable by any driver - that is the point - but
+    // writable only by the driver who holds the unit. The exists() clause lets
+    // drivers who registered before unit_claims existed keep working.
+    match /train_position/{unitId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+                   && (!exists(/databases/$(database)/documents/unit_claims/$(unitId))
+                       || get(/databases/$(database)/documents/unit_claims/$(unitId)).data.uid == request.auth.uid);
+    }
+
+    // Hazards.
+    //
+    // The clearing rule is a SAFETY rule, so it is enforced here and not only
+    // in the app. A camera report needs two independent drivers to clear; a
+    // driver report needs one. Enforced in the client alone, a bug or a
+    // direct write would silence a hazard for every train on the line.
+    match /hazards/{hazardId} {
+
+      allow read: if request.auth != null;
+
+      // A driver may report a hazard. They may not claim the camera saw it:
+      // only the Admin SDK, which bypasses these rules, can write 'auto'.
+      allow create: if request.auth != null
+                    && request.resource.data.reported_by != 'auto';
+
+      // Updates may not change who reported it - otherwise a camera report
+      // could be relabelled a driver report and cleared with a single vote -
+      // and may only set status to 'cleared' once enough drivers have voted.
+      allow update: if request.auth != null
+                    && request.resource.data.reported_by == resource.data.reported_by
+                    && (
+                         request.resource.data.status == resource.data.status
+                         || (request.resource.data.status == 'cleared'
+                             && request.resource.data.cleared_votes_count >=
+                                (resource.data.reported_by == 'auto' ? 2 : 1))
+                       );
+
+      // Never. A hazard is cleared, not deleted, so the record of what was
+      // seen and who cleared it survives. Housekeeping is done with the
+      // Admin SDK.
+      allow delete: if false;
+    }
+  }
+}

@@ -6,7 +6,15 @@ async function req(path, opts) {
   return res.json()
 }
 
-export const getCameras = () => req('/api/cameras')
+let inflightCams = null
+export const getCameras = (refresh = false) => {
+  if (!refresh && inflightCams) return inflightCams
+  const p = req(`/api/cameras${refresh ? '?refresh=1' : ''}`).finally(() => {
+    if (inflightCams === p) inflightCams = null
+  })
+  if (!refresh) inflightCams = p
+  return p
+}
 export const getCalibrations = () => req('/api/calibrations')
 export const getStatus = () => req('/api/status')
 export const getEvents = (since = 0) => req(`/api/events?since=${since}`)

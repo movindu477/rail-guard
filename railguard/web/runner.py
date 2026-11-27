@@ -29,6 +29,7 @@ class Runner:
 
     def __init__(self):
         self._lock = threading.Lock()
+        self.camera_lock = threading.Lock()   # serialize DirectShow open/probe calls
         self._thread = None
         self._stop = threading.Event()
         self.state = "idle"        # idle | loading | running | camera_lost | error
@@ -82,6 +83,19 @@ class Runner:
 
     # ------------------------------------------------------------------ loop
 
+    def _open_camera(self, index, width, height, retries=3):
+        """Open the camera under camera_lock with brief retry for DirectShow release lag."""
+        last_err = None
+        for attempt in range(retries):
+            with self.camera_lock:
+                try:
+                    return open_camera(index, width, height)
+                except RuntimeError as e:
+                    last_err = e
+            if attempt + 1 < retries:
+                time.sleep(0.5)
+        raise last_err
+
     def _run(self):
         s = self.settings
         try:
@@ -97,7 +111,7 @@ class Runner:
                 self._log(f"publishing as {s['unit_id']}")
 
             self.message = "opening camera"
-            cap = open_camera(s["camera"], s["width"], s["height"])
+            cap = self._open_camera(s["camera"], s["width"], s["height"])
             w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
             h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
             fx = cfg.focal_px(w)
@@ -127,7 +141,7 @@ class Runner:
                         last_retry = now
                         try:
                             cap.release()
-                            cap = open_camera(s["camera"], s["width"], s["height"])
+                            cap = self._open_camera(s["camera"], s["width"], s["height"], retries=1)
                             self.state, lost_logged = "running", False
                             self._log("camera back")
                         except Exception:           # noqa: BLE001
@@ -187,23 +201,24 @@ class Runner:
             "alert": res.alert,
             "alert_threat": (
                 None if not (res.alert and wt) else {
-                    "cls": wt.cls_name,
-                    "distance_m": None if wt.distance_m is None else round(wt.distance_m, 1),
+                    "cls": str(wt.cls_name),
+                    "distance_m": None if wt.distance_m is None else round(float(wt.distance_m), 1),
                 }
             ),
-            "track_valid": res.track_valid,
-            "rail_convergence": res.rail_convergence,
-            "on_track": len(res.threats),
-            "confirmed": len(res.confirmed_threats),
+            "track_valid": bool(res.track_valid),
+            "rail_convergence": None if res.rail_convergence is None else round(float(res.rail_convergence), 3),
+            "on_track": int(len(res.threats)),
+            "confirmed": int(len(res.confirmed_threats)),
             "detections": [
-                {"cls": d.cls_name, "conf": round(d.conf, 2), "on_track": d.on_track,
-                 "confirmed": d.confirmed, "hits": d.track_hits,
-                 "distance_m": None if d.distance_m is None else round(d.distance_m, 1)}
+                {"cls": str(d.cls_name), "conf": round(float(d.conf), 2),
+                 "on_track": bool(d.on_track), "confirmed": bool(d.confirmed),
+                 "hits": int(d.track_hits),
+                 "distance_m": None if d.distance_m is None else round(float(d.distance_m), 1)}
                 for d in res.detections
             ],
-            "fps": round(self._fps, 1),
-            "width": w, "height": h, "fx": round(fx),
-            "calibrated": calibrated,
+            "fps": round(float(self._fps), 1),
+            "width": int(w), "height": int(h), "fx": int(round(float(fx))),
+            "calibrated": bool(calibrated),
             "uptime_s": 0 if not self._started_at else int(time.time() - self._started_at),
         }
 

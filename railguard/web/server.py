@@ -23,6 +23,7 @@ which is below what the 3-frame persistence rule already costs.
 
 import glob
 import os
+import time
 
 import cv2
 from fastapi import FastAPI
@@ -44,6 +45,8 @@ app.add_middleware(
 )
 
 runner = Runner()
+_cam_cache = {"at": 0.0, "cameras": []}
+CAM_CACHE_TTL_S = 15.0
 
 
 class StartRequest(BaseModel):
@@ -57,25 +60,40 @@ class StartRequest(BaseModel):
 
 
 @app.get("/api/cameras")
-def cameras():
-    """Indices 0-3 that open, with the resolutions they actually deliver."""
-    found = []
-    for idx in range(4):
-        cap = cv2.VideoCapture(idx, cv2.CAP_DSHOW)
-        if not cap.isOpened():
+def cameras(refresh: bool = False):
+    """Indices 0-3 that open, with the resolutions they actually deliver.
+
+    Serialized by runner.camera_lock and briefly cached so React StrictMode's
+    double-mount or concurrent requests never race DirectShow or steal an
+    active camera from the runner.
+    """
+    if runner.state in ("loading", "running", "camera_lost"):
+        return {"cameras": _cam_cache["cameras"]}
+    with runner.camera_lock:
+        if runner.state in ("loading", "running", "camera_lost"):
+            return {"cameras": _cam_cache["cameras"]}
+        now = time.monotonic()
+        if not refresh and _cam_cache["cameras"] and (now - _cam_cache["at"]) < CAM_CACHE_TTL_S:
+            return {"cameras": _cam_cache["cameras"]}
+        found = []
+        for idx in range(4):
+            cap = cv2.VideoCapture(idx, cv2.CAP_DSHOW)
+            if not cap.isOpened():
+                cap.release()
+                continue
+            modes = []
+            for w, h in ((1920, 1080), (1280, 720)):
+                cap.set(cv2.CAP_PROP_FRAME_WIDTH, w)
+                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
+                aw = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                ah = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                if (aw, ah) not in modes:
+                    modes.append((aw, ah))
             cap.release()
-            continue
-        modes = []
-        for w, h in ((1920, 1080), (1280, 720)):
-            cap.set(cv2.CAP_PROP_FRAME_WIDTH, w)
-            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
-            aw = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-            ah = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-            if (aw, ah) not in modes:
-                modes.append((aw, ah))
-        cap.release()
-        found.append({"index": idx, "modes": [f"{w}x{h}" for w, h in modes]})
-    return {"cameras": found}
+            found.append({"index": idx, "modes": [f"{w}x{h}" for w, h in modes]})
+        _cam_cache["cameras"] = found
+        _cam_cache["at"] = time.monotonic()
+        return {"cameras": found}
 
 
 @app.get("/api/calibrations")

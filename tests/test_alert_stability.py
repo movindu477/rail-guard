@@ -1,5 +1,7 @@
 """Tests for track hysteresis, alert minimum hold, and non-obscuring corridor overlay."""
 
+import json
+
 import numpy as np
 
 from railguard.config import PipelineConfig
@@ -8,6 +10,7 @@ from railguard.core.tracking import PersistenceTracker
 from railguard.pipeline import RailGuardPipeline
 from railguard.results import Detection, FrameResult
 from railguard.ui.overlay import CORRIDOR_BAD, draw
+from railguard.web.runner import Runner
 
 
 class FakeClock:
@@ -172,3 +175,18 @@ def test_invalid_corridor_draws_thin_outline_not_filled_region():
     assert tuple(invalid_img[200, 200]) == (100, 100, 100)
     # Outline pixel on boundary is drawn in CORRIDOR_BAD red (anti-aliased).
     assert invalid_img[100, 200, 2] > 180 and invalid_img[100, 200, 0] < 30
+
+
+def test_runner_status_dict_is_json_serializable_with_numpy_scalars():
+    r = Runner()
+    det = Detection(10, 10, 30, 80, "person", np.float32(0.87), np.bool_(True),
+                    np.float32(31.4), np.int64(3), np.bool_(True))
+    res = FrameResult(None, None, np.zeros((10, 10), np.uint8), np.zeros(10, np.float32),
+                      [det], BRAKE_NOW, track_valid=np.bool_(True),
+                      rail_convergence=np.float32(0.24))
+    payload = r._as_dict(res, np.int64(1920), np.int64(1080), np.float32(1820.2), np.bool_(True))
+    encoded = json.dumps(payload)
+    decoded = json.loads(encoded)
+    assert decoded["alert_threat"] == {"cls": "person", "distance_m": 31.4}
+    assert decoded["detections"][0]["on_track"] is True
+    assert decoded["fx"] == 1820
